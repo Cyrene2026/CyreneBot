@@ -5,11 +5,14 @@ from google import genai
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError
 from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
 from cyreneAI.core.schema.provider import ProviderConfig, ProviderInfo, ProviderModel
 from cyreneAI.infra.adapters.providers.google_genai.errors import (
     raise_google_genai_error,
 )
 from cyreneAI.infra.adapters.providers.google_genai.mapper import (
+    map_google_image_generation_request,
+    map_google_image_generation_response,
     map_google_genai_request,
     map_google_genai_response,
 )
@@ -69,5 +72,23 @@ class GoogleGenAIProviderInstance:
                 for model in (map_provider_model(item) for item in response)
                 if model is not None
             ]
+        except Exception as exc:
+            raise_google_genai_error(exc)
+
+    async def generate_image(
+        self,
+        request: ImageGenerationRequest,
+    ) -> ImageGenerationResponse:
+        try:
+            payload = map_google_image_generation_request(request)
+            response = await asyncio.to_thread(
+                self._client.models.generate_images,
+                **payload,
+            )
+            return map_google_image_generation_response(
+                provider_id=self.config.provider_id,
+                model=request.model,
+                response=response,
+            )
         except Exception as exc:
             raise_google_genai_error(exc)

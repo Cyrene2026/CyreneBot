@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
+from cyreneAI.core.schema.image import (
+    GeneratedImage,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+)
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -208,3 +214,83 @@ def map_usage(usage: Any | None) -> TokenUsage | None:
 
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def map_google_image_generation_request(
+    request: ImageGenerationRequest,
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "number_of_images": request.count,
+        "aspect_ratio": _map_aspect_ratio(request),
+        "image_size": _map_image_size(request),
+        "output_mime_type": request.metadata.get("mime_type"),
+    }
+    return {
+        "model": request.model,
+        "prompt": request.prompt,
+        "config": _drop_none(config),
+    }
+
+
+def _map_aspect_ratio(request: ImageGenerationRequest) -> str | None:
+    aspect_ratio = request.metadata.get("aspect_ratio")
+    if isinstance(aspect_ratio, str):
+        return aspect_ratio
+    if request.size and ":" in request.size:
+        return request.size
+    return None
+
+
+def _map_image_size(request: ImageGenerationRequest) -> str | None:
+    image_size = request.metadata.get("image_size")
+    if isinstance(image_size, str):
+        return image_size
+    if request.size and ":" not in request.size:
+        return request.size
+    return None
+
+
+def map_google_image_generation_response(
+    provider_id: str,
+    model: str,
+    response: Any,
+) -> ImageGenerationResponse:
+    generated_images = getattr(response, "generated_images", None) or []
+    return ImageGenerationResponse(
+        provider_id=provider_id,
+        model=model,
+        images=[
+            image
+            for image in (
+                map_google_generated_image(item, index)
+                for index, item in enumerate(generated_images)
+            )
+            if image is not None
+        ],
+        raw=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
+    )
+
+
+def map_google_generated_image(item: Any, index: int) -> GeneratedImage | None:
+    image = getattr(item, "image", None)
+    if image is None:
+        return None
+
+    image_bytes = getattr(image, "image_bytes", None)
+    b64_json = (
+        base64.b64encode(image_bytes).decode("ascii")
+        if isinstance(image_bytes, bytes)
+        else None
+    )
+    return GeneratedImage(
+        index=index,
+        url=getattr(image, "gcs_uri", None),
+        b64_json=b64_json,
+        mime_type=getattr(image, "mime_type", None),
+        revised_prompt=getattr(item, "enhanced_prompt", None),
+        metadata=_drop_none(
+            {
+                "rai_filtered_reason": getattr(item, "rai_filtered_reason", None),
+            }
+        ),
+    )

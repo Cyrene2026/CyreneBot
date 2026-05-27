@@ -14,6 +14,7 @@ OPENAI_RESPONSES_PROVIDER_INFO = ProviderInfo(
     models=None,
     capabilities=[
         ProviderCapability.CHAT,
+        ProviderCapability.IMAGE_GENERATION,
     ],
     features=[
         ProviderFeature.TOOL_CALLING,

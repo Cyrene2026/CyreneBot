@@ -26,6 +26,7 @@ class ProviderCapability(StrEnum):
     STT = "stt"
     SEARCH = "search"
     IMAGE = "image"
+    IMAGE_GENERATION = "image_generation"
     VIDEO = "video"
 
 

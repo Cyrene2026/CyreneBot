@@ -2,6 +2,7 @@ from typing import Protocol
 from cyreneAI.core.schema.provider import ProviderInfo, ProviderConfig, ProviderModel
 from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
 from cyreneAI.core.schema.embedding import EmbeddingRequest, EmbeddingResponse
+from cyreneAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
 
 
 class ProviderInstanceProtocol(Protocol):
@@ -55,5 +56,16 @@ class TTSProviderProtocol(ProviderInstanceProtocol, Protocol):
     async def tts(self, text: str) -> bytes:
         """
         调用 provider 进行文本转语音
+        """
+        ...
+
+
+class ImageGenerationProviderProtocol(ProviderInstanceProtocol, Protocol):
+    async def generate_image(
+        self,
+        request: ImageGenerationRequest,
+    ) -> ImageGenerationResponse:
+        """
+        调用 provider 生成图片。
         """
         ...

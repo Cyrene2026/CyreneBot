@@ -4,9 +4,12 @@ from openai import AsyncOpenAI
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError
 from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
 from cyreneAI.core.schema.provider import ProviderConfig, ProviderInfo, ProviderModel
 from cyreneAI.infra.adapters.providers.openai_responses.errors import raise_openai_error
 from cyreneAI.infra.adapters.providers.openai_responses.mapper import (
+    map_image_generation_request,
+    map_image_generation_response,
     map_responses_request,
     map_responses_response,
 )
@@ -54,5 +57,20 @@ class OpenAIResponsesProviderInstance:
                 for model in (map_provider_model(item) for item in response.data)
                 if model is not None
             ]
+        except Exception as exc:
+            raise_openai_error(exc)
+
+    async def generate_image(
+        self,
+        request: ImageGenerationRequest,
+    ) -> ImageGenerationResponse:
+        try:
+            payload = map_image_generation_request(request)
+            response = await self._client.images.generate(**payload)
+            return map_image_generation_response(
+                provider_id=self.config.provider_id,
+                model=request.model,
+                response=response,
+            )
         except Exception as exc:
             raise_openai_error(exc)

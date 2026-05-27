@@ -7,6 +7,11 @@ from cyreneAI.core.schema.chat import (
     ChatRequest,
     ChatResponse,
 )
+from cyreneAI.core.schema.image import (
+    GeneratedImage,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+)
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -179,3 +184,37 @@ def map_usage(usage: Any | None) -> TokenUsage | None:
 
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def map_image_generation_request(request: ImageGenerationRequest) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": request.model,
+        "prompt": request.prompt,
+        "n": request.count,
+        "size": request.size,
+        "quality": request.quality,
+        "response_format": request.response_format,
+    }
+    return _drop_none(payload)
+
+
+def map_image_generation_response(
+    provider_id: str,
+    model: str,
+    response: Any,
+) -> ImageGenerationResponse:
+    data = getattr(response, "data", None) or []
+    return ImageGenerationResponse(
+        provider_id=provider_id,
+        model=model,
+        images=[
+            GeneratedImage(
+                index=index,
+                url=getattr(item, "url", None),
+                b64_json=getattr(item, "b64_json", None),
+                revised_prompt=getattr(item, "revised_prompt", None),
+            )
+            for index, item in enumerate(data)
+        ],
+        raw=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
+    )

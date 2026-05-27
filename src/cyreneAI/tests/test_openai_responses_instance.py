@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from openai.types.responses import Response
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError, ProviderError
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
+from cyreneAI.core.schema.image import ImageGenerationRequest
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -113,10 +115,29 @@ class _FakeModels:
         )()
 
 
+class _FakeImages:
+    def __init__(self) -> None:
+        self.payload: dict[str, Any] | None = None
+
+    async def generate(self, **payload: Any) -> Any:
+        self.payload = payload
+        return SimpleNamespace(
+            data=[
+                SimpleNamespace(
+                    b64_json="aW1hZ2U=",
+                    url=None,
+                    revised_prompt="A small robot.",
+                )
+            ],
+            model_dump=lambda mode: {"data": [{"b64_json": "aW1hZ2U="}]},
+        )
+
+
 class _FakeOpenAIClient:
     def __init__(self, responses: _FakeResponses) -> None:
         self.responses = responses
         self.models = _FakeModels()
+        self.images = _FakeImages()
         self.closed = False
 
     async def close(self) -> None:
@@ -191,5 +212,41 @@ def test_openai_responses_instance_lists_models() -> None:
         models = await instance.list_models()
 
         assert [model.model_id for model in models] == ["gpt-test"]
+
+    asyncio.run(run())
+
+
+def test_openai_responses_instance_generates_images() -> None:
+    async def run() -> None:
+        client = _FakeOpenAIClient(_FakeResponses(response=_response()))
+        instance = OpenAIResponsesProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=client,
+        )
+
+        response = await instance.generate_image(
+            ImageGenerationRequest(
+                provider_id="responses-test",
+                model="gpt-image-test",
+                prompt="A small robot.",
+                count=1,
+                size="1024x1024",
+                quality="medium",
+            )
+        )
+
+        assert client.images.payload == {
+            "model": "gpt-image-test",
+            "prompt": "A small robot.",
+            "n": 1,
+            "size": "1024x1024",
+            "quality": "medium",
+            "response_format": "b64_json",
+        }
+        assert response.provider_id == "responses-test"
+        assert response.model == "gpt-image-test"
+        assert response.images[0].b64_json == "aW1hZ2U="
+        assert response.images[0].revised_prompt == "A small robot."
 
     asyncio.run(run())

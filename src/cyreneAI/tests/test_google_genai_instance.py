@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from google.genai.types import GenerateContentResponse
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError, ProviderError
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
+from cyreneAI.core.schema.image import ImageGenerationRequest
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -100,6 +102,25 @@ class _FakeModels:
         if self.error is not None:
             raise self.error
         return self.models_response
+
+    def generate_images(self, **payload: Any) -> Any:
+        self.payload = payload
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(
+            generated_images=[
+                SimpleNamespace(
+                    image=SimpleNamespace(
+                        image_bytes=b"image",
+                        mime_type="image/png",
+                        gcs_uri=None,
+                    ),
+                    enhanced_prompt="A small robot.",
+                    rai_filtered_reason=None,
+                )
+            ],
+            model_dump=lambda mode: {"generated_images": [{}]},
+        )
 
 
 class _FakeGoogleClient:
@@ -226,5 +247,45 @@ def test_google_genai_instance_lists_models() -> None:
         models = await instance.list_models()
 
         assert [model.model_id for model in models] == ["models/gemini-test"]
+
+    asyncio.run(run())
+
+
+def test_google_genai_instance_generates_images() -> None:
+    async def run() -> None:
+        models = _FakeModels(response=_response())
+        instance = GoogleGenAIProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeGoogleClient(models),
+        )
+
+        response = await instance.generate_image(
+            ImageGenerationRequest(
+                provider_id="google-test",
+                model="imagen-test",
+                prompt="A small robot.",
+                count=2,
+                size="1:1",
+                metadata={
+                    "mime_type": "image/png",
+                },
+            )
+        )
+
+        assert models.payload == {
+            "model": "imagen-test",
+            "prompt": "A small robot.",
+            "config": {
+                "number_of_images": 2,
+                "aspect_ratio": "1:1",
+                "output_mime_type": "image/png",
+            },
+        }
+        assert response.provider_id == "google-test"
+        assert response.model == "imagen-test"
+        assert response.images[0].b64_json == "aW1hZ2U="
+        assert response.images[0].mime_type == "image/png"
+        assert response.images[0].revised_prompt == "A small robot."
 
     asyncio.run(run())
