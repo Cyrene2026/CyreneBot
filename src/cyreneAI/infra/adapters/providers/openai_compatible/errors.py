@@ -19,7 +19,8 @@ from openai import (
     WebSocketConnectionClosedError as OpenAIWebSocketConnectionClosedError,
     WebSocketQueueFullError as OpenAIWebSocketQueueFullError,
 )
-from typing import NoReturn
+import json
+from typing import Any, NoReturn
 from cyreneAI.core.errors.provider import (
     ProviderError,
     ProviderUnavailableError,
@@ -32,6 +33,10 @@ from cyreneAI.core.errors.provider import (
 
 
 def translate_openai_error(exc: Exception) -> ProviderError:
+    known_request_error = translate_known_request_error(exc)
+    if known_request_error is not None:
+        return known_request_error
+
     if isinstance(
         exc,
         (
@@ -89,6 +94,98 @@ def translate_openai_error(exc: Exception) -> ProviderError:
         return ProviderRequestError(message=str(exc), cause=exc)
     else:
         return ProviderError(message=str(exc), cause=exc)
+
+
+def translate_known_request_error(exc: Exception) -> ProviderRequestError | None:
+    text = " ".join(candidate.casefold() for candidate in _error_text_candidates(exc))
+
+    if _contains_any(
+        text,
+        [
+            "function calling is not enabled",
+            "tool calling is not enabled",
+            "does not support tool",
+            "do not support tool",
+            "tools are not supported",
+            "tool_choice",
+        ],
+    ):
+        return ProviderRequestError(
+            message="Provider does not support the requested tool calling behavior",
+            cause=exc,
+        )
+
+    if _contains_any(
+        text,
+        [
+            "model is not a vlm",
+            "does not support image",
+            "do not support image",
+            "vision is not supported",
+            "invalid image",
+            "image input",
+        ],
+    ):
+        return ProviderRequestError(
+            message="Provider does not support the requested vision input",
+            cause=exc,
+        )
+
+    if _contains_any(
+        text,
+        [
+            "maximum context length",
+            "context length",
+            "context_length_exceeded",
+            "too many tokens",
+            "exceeds the token limit",
+        ],
+    ):
+        return ProviderRequestError(
+            message="Provider context length exceeded",
+            cause=exc,
+        )
+
+    return None
+
+
+def _contains_any(text: str, patterns: list[str]) -> bool:
+    return any(pattern in text for pattern in patterns)
+
+
+def _error_text_candidates(exc: Exception) -> list[str]:
+    candidates: list[str] = []
+
+    def append(value: Any) -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if text:
+            candidates.append(text)
+
+    append(str(exc))
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        append(_safe_json_dump(body))
+        error = body.get("error")
+        if isinstance(error, dict):
+            for field in ("message", "type", "code", "param"):
+                append(error.get(field))
+    else:
+        append(body)
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        append(getattr(response, "text", None))
+
+    return candidates
+
+
+def _safe_json_dump(value: Any) -> str | None:
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return None
 
 
 def raise_openai_error(exc: Exception) -> NoReturn:

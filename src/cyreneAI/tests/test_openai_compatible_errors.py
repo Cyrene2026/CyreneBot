@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 from openai import (
     APITimeoutError,
     APIStatusError,
     AuthenticationError,
+    BadRequestError,
     RateLimitError,
 )
 
@@ -56,6 +58,45 @@ def test_translate_openai_status_error_by_status_code() -> None:
     assert isinstance(translate_openai_error(unauthorized), ProviderAuthorizationError)
     assert isinstance(translate_openai_error(unavailable), ProviderUnavailableError)
     assert isinstance(translate_openai_error(request_error), ProviderRequestError)
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            "Function calling is not enabled for this model",
+            "Provider does not support the requested tool calling behavior",
+        ),
+        (
+            "The model is not a VLM",
+            "Provider does not support the requested vision input",
+        ),
+        (
+            "maximum context length exceeded",
+            "Provider context length exceeded",
+        ),
+    ],
+)
+def test_translate_known_openai_compatible_request_errors(
+    message: str,
+    expected: str,
+) -> None:
+    exc = BadRequestError(
+        message,
+        response=_response(400),
+        body={
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+            }
+        },
+    )
+
+    translated = translate_openai_error(exc)
+
+    assert isinstance(translated, ProviderRequestError)
+    assert str(translated) == expected
+    assert translated.cause is exc
 
 
 def test_translate_unknown_error_to_provider_error() -> None:
