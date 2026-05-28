@@ -25,6 +25,47 @@ def build_server_settings_from_env() -> ServerSettings:
     )
 
 
+def build_telegram_bot_token_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("TELEGRAM_BOT_TOKEN") or _env_str("BOT_TOKEN")
+
+
+def build_telegram_webhook_secret_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("TELEGRAM_SECRET_TOKEN") or _env_str(
+        "TELEGRAM_BOT_SECRET_TOKEN"
+    )
+
+
+def build_telegram_webhook_provider_id_from_env() -> str | None:
+    load_dotenv()
+
+    telegram_provider_id = _env_str("TELEGRAM_BOT_PROVIDER_ID")
+    if telegram_provider_id:
+        return telegram_provider_id
+
+    if _env_str("OPENAI_COMPATIBLE_API_KEY") or _env_str("OPENAI_API_KEY"):
+        return _env_str("OPENAI_COMPATIBLE_PROVIDER_ID") or "openai-compatible"
+
+    if _env_str("OPENAI_RESPONSES_API_KEY"):
+        return _env_str("OPENAI_RESPONSES_PROVIDER_ID") or "openai"
+
+    return _env_str("OPENAI_PROVIDER_ID")
+
+
+def build_telegram_webhook_model_from_env() -> str | None:
+    load_dotenv()
+
+    return (
+        _env_str("TELEGRAM_BOT_MODEL")
+        or _env_str("OPENAI_COMPATIBLE_MODEL")
+        or _env_str("OPENAI_RESPONSES_MODEL")
+        or _env_str("OPENAI_MODEL")
+    )
+
+
 def build_provider_configs_from_env() -> list[ProviderConfig]:
     load_dotenv()
 
@@ -97,3 +138,11 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_str(name: str) -> str | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None

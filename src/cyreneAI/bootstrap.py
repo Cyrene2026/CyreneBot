@@ -28,6 +28,9 @@ from cyreneAI.infra.bootstrap.registrations.bot_channels import (
     register_default_bot_channels,
 )
 from cyreneAI.infra.bootstrap.registrations.providers import register_default_providers
+from cyreneAI.infra.bootstrap.registrations.telegram_bot_channel import (
+    register_telegram_bot_channel,
+)
 from cyreneAI.infra.database.sqlite.builder import create_sqlite_context_store
 
 
@@ -42,6 +45,7 @@ async def build_cyrene_ai_runtime(
     vector_database_path: str | Path | None = None,
     bot_channel_registry: BotChannelRegistryProtocol | None = None,
     enable_memory_bot_channel: bool = False,
+    telegram_bot_token: str | None = None,
     bot_session_store: BotSessionStoreProtocol | None = None,
     bot_session_manager: BotSessionManager | None = None,
 ) -> CyreneAIRuntime:
@@ -83,10 +87,16 @@ async def build_cyrene_ai_runtime(
         runtime_bot_session_manager = BotSessionManager(bot_session_store)
 
     runtime_bot_channel_registry = bot_channel_registry
-    if enable_memory_bot_channel:
+    if enable_memory_bot_channel or telegram_bot_token:
         if runtime_bot_channel_registry is None:
             runtime_bot_channel_registry = BotChannelRegistry()
+    if enable_memory_bot_channel:
         register_default_bot_channels(runtime_bot_channel_registry)
+    if telegram_bot_token:
+        register_telegram_bot_channel(
+            runtime_bot_channel_registry,
+            token=telegram_bot_token,
+        )
 
     return await build_application_runtime(
         provider_manager=provider_manager,

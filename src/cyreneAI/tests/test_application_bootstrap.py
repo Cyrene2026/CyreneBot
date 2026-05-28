@@ -13,6 +13,7 @@ from cyreneAI.core.schema.skill import SkillSelectionRequest
 from cyreneAI.core.schema.tool import ToolCall, ToolDefinition, ToolResult
 from cyreneAI.core.schema.vector import VectorQuery, VectorRecord
 from cyreneAI.infra.adapters.channels.memory import InMemoryBotChannel
+from cyreneAI.infra.adapters.channels.telegram import TelegramBotChannel
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 from cyreneAI.infra.adapters.vector_stores.memory.store import InMemoryVectorStore
 
@@ -187,6 +188,25 @@ async def _run_build_runtime_can_enable_memory_bot_channel() -> None:
 
 def test_build_cyrene_ai_runtime_can_enable_memory_bot_channel() -> None:
     asyncio.run(_run_build_runtime_can_enable_memory_bot_channel())
+
+
+async def _run_build_runtime_can_enable_telegram_bot_channel() -> None:
+    runtime = await build_cyrene_ai_runtime(
+        telegram_bot_token="telegram-token",
+    )
+
+    assert runtime.bot_channel_registry is not None
+    assert runtime.bot_channel_registry.exists("telegram")
+    assert isinstance(
+        runtime.bot_channel_registry.get_channel("telegram"),
+        TelegramBotChannel,
+    )
+
+    await runtime.close()
+
+
+def test_build_cyrene_ai_runtime_can_enable_telegram_bot_channel() -> None:
+    asyncio.run(_run_build_runtime_can_enable_telegram_bot_channel())
 
 
 async def _run_build_runtime_wires_bot_session_store() -> None:

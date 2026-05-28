@@ -7,6 +7,10 @@ from cyreneAI.server.app import create_app
 from cyreneAI.server.config import (
     build_provider_configs_from_env,
     build_server_settings_from_env,
+    build_telegram_bot_token_from_env,
+    build_telegram_webhook_model_from_env,
+    build_telegram_webhook_provider_id_from_env,
+    build_telegram_webhook_secret_from_env,
 )
 
 
@@ -14,7 +18,11 @@ app = create_app(
     asyncio.run(
         build_cyrene_ai_runtime(
             provider_configs=build_provider_configs_from_env(),
+            telegram_bot_token=build_telegram_bot_token_from_env(),
         )
     ),
     settings=build_server_settings_from_env(),
+    telegram_webhook_secret=build_telegram_webhook_secret_from_env(),
+    telegram_provider_id=build_telegram_webhook_provider_id_from_env(),
+    telegram_model=build_telegram_webhook_model_from_env(),
 )

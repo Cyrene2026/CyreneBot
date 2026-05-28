@@ -36,7 +36,14 @@ from cyreneAI.core.schema.provider import (
     ProviderType,
 )
 from cyreneAI.server import create_app
-from cyreneAI.server.config import ServerSettings, build_provider_configs_from_env
+from cyreneAI.server.config import (
+    ServerSettings,
+    build_provider_configs_from_env,
+    build_telegram_bot_token_from_env,
+    build_telegram_webhook_model_from_env,
+    build_telegram_webhook_provider_id_from_env,
+    build_telegram_webhook_secret_from_env,
+)
 
 
 class FakeServerProvider:
@@ -92,15 +99,16 @@ class FakeServerProvider:
 
 
 class FakeServerChannel:
-    def __init__(self) -> None:
+    def __init__(self, *, channel_id: str = "fake") -> None:
+        self.channel_id = channel_id
         self.actions: list[BotAction] = []
 
     def map_update(self, update: dict) -> BotEvent:
         return BotEvent(
             event_id=str(update["event_id"]),
             event_type=BotEventType.MESSAGE,
-            channel_id="fake",
-            session_id="fake:user-1",
+            channel_id=self.channel_id,
+            session_id=f"{self.channel_id}:user-1",
             user_id="user-1",
             message=BotMessage(
                 sender_id="user-1",
@@ -117,14 +125,21 @@ class FakeServerChannel:
         self.actions.append(action)
 
 
-def _client() -> TestClient:
+def _client(
+    *,
+    channel_id: str = "fake",
+    settings: ServerSettings | None = None,
+    telegram_webhook_secret: str | None = None,
+    telegram_provider_id: str | None = None,
+    telegram_model: str | None = None,
+) -> TestClient:
     async def build_runtime() -> CyreneAIRuntime:
         provider = FakeServerProvider()
-        channel = FakeServerChannel()
+        channel = FakeServerChannel(channel_id=channel_id)
         bot_channel_registry = BotChannelRegistry()
         bot_channel_registry.register(
             BotChannelDefinition(
-                channel_id="fake",
+                channel_id=channel_id,
                 name="Fake",
             ),
             channel,
@@ -146,7 +161,10 @@ def _client() -> TestClient:
     return TestClient(
         create_app(
             asyncio.run(build_runtime()),
-            settings=ServerSettings(auth_enabled=False),
+            settings=settings or ServerSettings(auth_enabled=False),
+            telegram_webhook_secret=telegram_webhook_secret,
+            telegram_provider_id=telegram_provider_id,
+            telegram_model=telegram_model,
         )
     )
 
@@ -222,6 +240,70 @@ def test_server_channel_webhook_sends_bot_reply() -> None:
     assert sent_actions[0]["message"]["content"][0]["text"] == "pong"
 
 
+def test_server_telegram_webhook_sends_bot_reply_without_admin_auth() -> None:
+    response = _client(
+        channel_id="telegram",
+        settings=ServerSettings(
+            auth_enabled=True,
+            admin_username="admin",
+            admin_password="password",
+            session_secret="secret",
+        ),
+        telegram_webhook_secret="webhook-secret",
+        telegram_provider_id="provider-1",
+        telegram_model="chat-model",
+    ).post(
+        "/telegram/webhook",
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        json={
+            "event_id": "event-1",
+            "text": "ping",
+        },
+    )
+
+    assert response.status_code == 200
+    sent_actions = response.json()["sent_actions"]
+    assert len(sent_actions) == 1
+    assert sent_actions[0]["channel_id"] == "telegram"
+    assert sent_actions[0]["message"]["content"][0]["text"] == "pong"
+
+
+def test_server_telegram_webhook_rejects_invalid_secret() -> None:
+    response = _client(
+        channel_id="telegram",
+        telegram_webhook_secret="webhook-secret",
+        telegram_provider_id="provider-1",
+        telegram_model="chat-model",
+    ).post(
+        "/telegram/webhook",
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": "wrong",
+        },
+        json={
+            "event_id": "event-1",
+            "text": "ping",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_server_telegram_webhook_requires_provider_and_model() -> None:
+    response = _client(
+        channel_id="telegram",
+    ).post(
+        "/telegram/webhook",
+        json={
+            "event_id": "event-1",
+            "text": "ping",
+        },
+    )
+
+    assert response.status_code == 400
+
+
 def test_server_builds_provider_configs_from_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "compatible-key")
     monkeypatch.setenv("OPENAI_COMPATIBLE_BASE_URL", "https://compatible.example/v1")
@@ -238,3 +320,31 @@ def test_server_builds_provider_configs_from_env(monkeypatch) -> None:
         ProviderType.GOOGLE,
     ]
     assert configs[0].base_url == "https://compatible.example/v1"
+
+
+def test_server_builds_telegram_webhook_config_from_env(monkeypatch) -> None:
+    monkeypatch.delenv("BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_SECRET_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "bot-token")
+    monkeypatch.setenv("TELEGRAM_SECRET_TOKEN", "webhook-secret")
+    monkeypatch.setenv("TELEGRAM_BOT_PROVIDER_ID", "provider-1")
+    monkeypatch.setenv("TELEGRAM_BOT_MODEL", "bot-model")
+
+    assert build_telegram_bot_token_from_env() == "bot-token"
+    assert build_telegram_webhook_secret_from_env() == "webhook-secret"
+    assert build_telegram_webhook_provider_id_from_env() == "provider-1"
+    assert build_telegram_webhook_model_from_env() == "bot-model"
+
+
+def test_server_builds_telegram_webhook_config_from_provider_fallbacks(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_PROVIDER_ID", "")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_PROVIDER_ID", "")
+    monkeypatch.setenv("OPENAI_RESPONSES_PROVIDER_ID", "")
+    monkeypatch.setenv("OPENAI_PROVIDER_ID", "")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "compatible-key")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "chat-model")
+
+    assert build_telegram_webhook_provider_id_from_env() == "openai-compatible"
+    assert build_telegram_webhook_model_from_env() == "chat-model"
