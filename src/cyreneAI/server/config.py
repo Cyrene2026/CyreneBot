@@ -66,6 +66,39 @@ def build_telegram_webhook_model_from_env() -> str | None:
     )
 
 
+def build_telegram_polling_enabled_from_env() -> bool:
+    load_dotenv()
+
+    return (_env_str("TELEGRAM_BOT_MODE") or "").lower() == "polling"
+
+
+def build_telegram_polling_interval_seconds_from_env() -> float:
+    load_dotenv()
+
+    return float(os.getenv("TELEGRAM_BOT_POLL_INTERVAL_SECONDS", "1"))
+
+
+def build_telegram_polling_timeout_seconds_from_env() -> int:
+    load_dotenv()
+
+    return int(os.getenv("TELEGRAM_BOT_POLL_TIMEOUT_SECONDS", "30"))
+
+
+def build_telegram_polling_limit_from_env() -> int | None:
+    load_dotenv()
+
+    raw = _env_str("TELEGRAM_BOT_POLL_LIMIT")
+    if raw is None:
+        return None
+    return int(raw)
+
+
+def build_bot_polling_state_database_path_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("CYRENEAI_BOT_POLLING_STATE_DATABASE_PATH")
+
+
 def build_provider_configs_from_env() -> list[ProviderConfig]:
     load_dotenv()
 

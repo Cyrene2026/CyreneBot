@@ -232,6 +232,55 @@ def map_google_image_generation_request(
     }
 
 
+def should_use_google_generate_images(request: ImageGenerationRequest) -> bool:
+    api_type = request.metadata.get("google_api_type") or request.metadata.get("api_type")
+    if isinstance(api_type, str):
+        normalized_api_type = api_type.strip().lower()
+        if normalized_api_type in {"generate_images", "imagen"}:
+            return True
+        if normalized_api_type in {"generate_content", "gemini"}:
+            return False
+
+    return request.model.strip().lower().startswith("imagen")
+
+
+def map_google_content_image_generation_request(
+    request: ImageGenerationRequest,
+) -> dict[str, Any]:
+    image_config: dict[str, Any] = {
+        "aspect_ratio": _map_aspect_ratio(request),
+        "image_size": _map_image_size(request),
+        "output_mime_type": request.metadata.get("mime_type"),
+    }
+    config: dict[str, Any] = {
+        "response_modalities": _map_response_modalities(request),
+        "image_config": _drop_none(image_config),
+    }
+    return {
+        "model": request.model,
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": request.prompt,
+                    }
+                ],
+            }
+        ],
+        "config": _drop_none(config),
+    }
+
+
+def _map_response_modalities(request: ImageGenerationRequest) -> list[str]:
+    raw_modalities = request.metadata.get("response_modalities")
+    if isinstance(raw_modalities, list):
+        modalities = [str(item).upper() for item in raw_modalities if item]
+        if modalities:
+            return modalities
+    return ["IMAGE"]
+
+
 def _map_aspect_ratio(request: ImageGenerationRequest) -> str | None:
     aspect_ratio = request.metadata.get("aspect_ratio")
     if isinstance(aspect_ratio, str):
@@ -268,6 +317,67 @@ def map_google_image_generation_response(
             if image is not None
         ],
         raw=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
+    )
+
+
+def map_google_content_image_generation_response(
+    provider_id: str,
+    model: str,
+    response: Any,
+) -> ImageGenerationResponse:
+    candidates = getattr(response, "candidates", None) or []
+    candidate = candidates[0] if candidates else None
+    parts = []
+    if candidate is not None and getattr(candidate, "content", None) is not None:
+        parts = getattr(candidate.content, "parts", None) or []
+
+    text_parts = [
+        text
+        for text in (getattr(part, "text", None) for part in parts)
+        if isinstance(text, str) and text
+    ]
+    images = [
+        image
+        for image in (
+            map_google_content_generated_image(part, index)
+            for index, part in enumerate(parts)
+        )
+        if image is not None
+    ]
+    revised_prompt = "\n".join(text_parts) or None
+    if revised_prompt:
+        images = [
+            image.model_copy(update={"revised_prompt": image.revised_prompt or revised_prompt})
+            for image in images
+        ]
+
+    return ImageGenerationResponse(
+        provider_id=provider_id,
+        model=model,
+        images=images,
+        raw=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
+    )
+
+
+def map_google_content_generated_image(part: Any, index: int) -> GeneratedImage | None:
+    inline_data = getattr(part, "inline_data", None)
+    if inline_data is None:
+        return None
+
+    data = getattr(inline_data, "data", None)
+    if isinstance(data, bytes):
+        b64_json = base64.b64encode(data).decode("ascii")
+    elif isinstance(data, str):
+        b64_json = data
+    else:
+        b64_json = None
+    if b64_json is None:
+        return None
+
+    return GeneratedImage(
+        index=index,
+        b64_json=b64_json,
+        mime_type=getattr(inline_data, "mime_type", None),
     )
 
 

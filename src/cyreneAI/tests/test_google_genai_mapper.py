@@ -3,6 +3,7 @@ from __future__ import annotations
 from google.genai.types import GenerateContentResponse
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
+from cyreneAI.core.schema.image import ImageGenerationRequest
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -11,8 +12,10 @@ from cyreneAI.core.schema.message import (
 )
 from cyreneAI.core.schema.tool import ToolChoice, ToolDefinition
 from cyreneAI.infra.adapters.providers.google_genai.mapper import (
+    map_google_content_image_generation_request,
     map_google_genai_request,
     map_google_genai_response,
+    should_use_google_generate_images,
 )
 
 
@@ -122,3 +125,64 @@ def test_map_google_genai_response_builds_core_response() -> None:
     assert response.tool_calls[0].id == "lookup"
     assert response.tool_calls[0].name == "lookup"
     assert response.tool_calls[0].arguments == "{\"key\": \"value\"}"
+
+
+def test_google_image_generation_route_selection() -> None:
+    assert should_use_google_generate_images(
+        ImageGenerationRequest(
+            provider_id="google",
+            model="imagen-4.0-generate-preview",
+            prompt="hello",
+        )
+    )
+    assert not should_use_google_generate_images(
+        ImageGenerationRequest(
+            provider_id="google",
+            model="gemini-2.5-flash-image",
+            prompt="hello",
+        )
+    )
+    assert not should_use_google_generate_images(
+        ImageGenerationRequest(
+            provider_id="google",
+            model="imagen-proxy",
+            prompt="hello",
+            metadata={"google_api_type": "generate_content"},
+        )
+    )
+
+
+def test_map_google_content_image_generation_request_builds_payload() -> None:
+    payload = map_google_content_image_generation_request(
+        ImageGenerationRequest(
+            provider_id="google",
+            model="gemini-2.5-flash-image",
+            prompt="draw a small robot",
+            count=1,
+            size="1:1",
+            metadata={
+                "mime_type": "image/png",
+            },
+        )
+    )
+
+    assert payload == {
+        "model": "gemini-2.5-flash-image",
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": "draw a small robot",
+                    }
+                ],
+            }
+        ],
+        "config": {
+            "response_modalities": ["IMAGE"],
+            "image_config": {
+                "aspect_ratio": "1:1",
+                "output_mime_type": "image/png",
+            },
+        },
+    }

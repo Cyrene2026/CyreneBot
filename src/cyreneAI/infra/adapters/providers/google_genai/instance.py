@@ -11,10 +11,13 @@ from cyreneAI.infra.adapters.providers.google_genai.errors import (
     raise_google_genai_error,
 )
 from cyreneAI.infra.adapters.providers.google_genai.mapper import (
+    map_google_content_image_generation_request,
+    map_google_content_image_generation_response,
     map_google_image_generation_request,
     map_google_image_generation_response,
     map_google_genai_request,
     map_google_genai_response,
+    should_use_google_generate_images,
 )
 from cyreneAI.infra.adapters.providers.model_mapper import map_provider_model
 
@@ -80,12 +83,24 @@ class GoogleGenAIProviderInstance:
         request: ImageGenerationRequest,
     ) -> ImageGenerationResponse:
         try:
-            payload = map_google_image_generation_request(request)
+            if should_use_google_generate_images(request):
+                payload = map_google_image_generation_request(request)
+                response = await asyncio.to_thread(
+                    self._client.models.generate_images,
+                    **payload,
+                )
+                return map_google_image_generation_response(
+                    provider_id=self.config.provider_id,
+                    model=request.model,
+                    response=response,
+                )
+
+            payload = map_google_content_image_generation_request(request)
             response = await asyncio.to_thread(
-                self._client.models.generate_images,
+                self._client.models.generate_content,
                 **payload,
             )
-            return map_google_image_generation_response(
+            return map_google_content_image_generation_response(
                 provider_id=self.config.provider_id,
                 model=request.model,
                 response=response,

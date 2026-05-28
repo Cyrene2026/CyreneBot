@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cyreneAI.core.bot.bot_protocol import BotChannelRegistryProtocol
+from cyreneAI.core.bot.polling_protocol import BotPollingStateStoreProtocol
 from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
 from cyreneAI.core.context.manager import ContextManager
@@ -29,6 +30,7 @@ class CyreneAIRuntime:
     tool_manager: ToolManager | None = None
     bot_channel_registry: BotChannelRegistryProtocol | None = None
     bot_session_manager: BotSessionManager | None = None
+    bot_polling_state_store: BotPollingStateStoreProtocol | None = None
 
     async def close(self) -> None:
         """
@@ -50,6 +52,12 @@ class CyreneAIRuntime:
         if self.vector_manager is not None:
             try:
                 await self.vector_manager.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        if self.bot_polling_state_store is not None:
+            try:
+                await self.bot_polling_state_store.close()
             except Exception as exc:
                 errors.append(exc)
 

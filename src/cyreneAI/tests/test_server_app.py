@@ -38,8 +38,13 @@ from cyreneAI.core.schema.provider import (
 from cyreneAI.server import create_app
 from cyreneAI.server.config import (
     ServerSettings,
+    build_bot_polling_state_database_path_from_env,
     build_provider_configs_from_env,
     build_telegram_bot_token_from_env,
+    build_telegram_polling_enabled_from_env,
+    build_telegram_polling_interval_seconds_from_env,
+    build_telegram_polling_limit_from_env,
+    build_telegram_polling_timeout_seconds_from_env,
     build_telegram_webhook_model_from_env,
     build_telegram_webhook_provider_id_from_env,
     build_telegram_webhook_secret_from_env,
@@ -132,6 +137,7 @@ def _client(
     telegram_webhook_secret: str | None = None,
     telegram_provider_id: str | None = None,
     telegram_model: str | None = None,
+    telegram_polling_enabled: bool = False,
 ) -> TestClient:
     async def build_runtime() -> CyreneAIRuntime:
         provider = FakeServerProvider()
@@ -165,6 +171,7 @@ def _client(
             telegram_webhook_secret=telegram_webhook_secret,
             telegram_provider_id=telegram_provider_id,
             telegram_model=telegram_model,
+            telegram_polling_enabled=telegram_polling_enabled,
         )
     )
 
@@ -348,3 +355,41 @@ def test_server_builds_telegram_webhook_config_from_provider_fallbacks(
 
     assert build_telegram_webhook_provider_id_from_env() == "openai-compatible"
     assert build_telegram_webhook_model_from_env() == "chat-model"
+
+
+def test_server_builds_telegram_polling_config_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("CYRENEAI_BOT_POLLING_STATE_DATABASE_PATH", "data/bot_polling.db")
+    monkeypatch.setenv("TELEGRAM_BOT_MODE", "polling")
+    monkeypatch.setenv("TELEGRAM_BOT_POLL_INTERVAL_SECONDS", "0.5")
+    monkeypatch.setenv("TELEGRAM_BOT_POLL_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("TELEGRAM_BOT_POLL_LIMIT", "10")
+
+    assert build_telegram_polling_enabled_from_env() is True
+    assert build_telegram_polling_interval_seconds_from_env() == 0.5
+    assert build_telegram_polling_timeout_seconds_from_env() == 20
+    assert build_telegram_polling_limit_from_env() == 10
+    assert build_bot_polling_state_database_path_from_env() == "data/bot_polling.db"
+
+
+def test_server_disables_telegram_polling_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_MODE", "")
+    monkeypatch.setenv("TELEGRAM_BOT_POLL_LIMIT", "")
+
+    assert build_telegram_polling_enabled_from_env() is False
+    assert build_telegram_polling_limit_from_env() is None
+
+
+def test_server_telegram_polling_requires_registered_channel() -> None:
+    client = _client(
+        telegram_provider_id="provider-1",
+        telegram_model="chat-model",
+        telegram_polling_enabled=True,
+    )
+
+    try:
+        with client:
+            pass
+    except RuntimeError as exc:
+        assert str(exc) == "Telegram polling requires a registered telegram channel"
+    else:
+        raise AssertionError("Expected RuntimeError")

@@ -7,6 +7,7 @@ from cyreneAI.application.bootstrap import (
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.bot_protocol import BotChannelRegistryProtocol
+from cyreneAI.core.bot.polling_protocol import BotPollingStateStoreProtocol
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.bot.session_protocol import BotSessionStoreProtocol
@@ -21,6 +22,9 @@ from cyreneAI.core.skill.registry import SkillRegistry
 from cyreneAI.core.tool.tool_protocol import ToolRegistryProtocol
 from cyreneAI.core.vector.vector_protocol import VectorStoreProtocol
 from cyreneAI.infra.adapters.skills.filesystem.loader import FileSystemSkillLoader
+from cyreneAI.infra.adapters.bot_polling_states.sqlite.builder import (
+    create_sqlite_bot_polling_state_store,
+)
 from cyreneAI.infra.adapters.vector_stores.sqlite.builder import (
     create_sqlite_vector_store,
 )
@@ -48,6 +52,8 @@ async def build_cyrene_ai_runtime(
     telegram_bot_token: str | None = None,
     bot_session_store: BotSessionStoreProtocol | None = None,
     bot_session_manager: BotSessionManager | None = None,
+    bot_polling_state_store: BotPollingStateStoreProtocol | None = None,
+    bot_polling_state_database_path: str | Path | None = None,
 ) -> CyreneAIRuntime:
     """
     构建带默认 infra 适配的 CyreneAI 运行时。
@@ -86,6 +92,22 @@ async def build_cyrene_ai_runtime(
     if runtime_bot_session_manager is None and bot_session_store is not None:
         runtime_bot_session_manager = BotSessionManager(bot_session_store)
 
+    runtime_bot_polling_state_store = bot_polling_state_store
+    if (
+        runtime_bot_polling_state_store is not None
+        and bot_polling_state_database_path is not None
+    ):
+        raise ValueError(
+            "bot_polling_state_store and bot_polling_state_database_path cannot both be set"
+        )
+    if (
+        runtime_bot_polling_state_store is None
+        and bot_polling_state_database_path is not None
+    ):
+        runtime_bot_polling_state_store = await create_sqlite_bot_polling_state_store(
+            bot_polling_state_database_path
+        )
+
     runtime_bot_channel_registry = bot_channel_registry
     if enable_memory_bot_channel or telegram_bot_token:
         if runtime_bot_channel_registry is None:
@@ -107,6 +129,7 @@ async def build_cyrene_ai_runtime(
         vector_store=runtime_vector_store,
         bot_channel_registry=runtime_bot_channel_registry,
         bot_session_manager=runtime_bot_session_manager,
+        bot_polling_state_store=runtime_bot_polling_state_store,
     )
 
 

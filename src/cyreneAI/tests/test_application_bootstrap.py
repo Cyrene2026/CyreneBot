@@ -14,6 +14,9 @@ from cyreneAI.core.schema.tool import ToolCall, ToolDefinition, ToolResult
 from cyreneAI.core.schema.vector import VectorQuery, VectorRecord
 from cyreneAI.infra.adapters.channels.memory import InMemoryBotChannel
 from cyreneAI.infra.adapters.channels.telegram import TelegramBotChannel
+from cyreneAI.infra.adapters.bot_polling_states.memory import (
+    InMemoryBotPollingStateStore,
+)
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 from cyreneAI.infra.adapters.vector_stores.memory.store import InMemoryVectorStore
 
@@ -224,6 +227,50 @@ async def _run_build_runtime_wires_bot_session_store() -> None:
 
 def test_build_cyrene_ai_runtime_wires_bot_session_store() -> None:
     asyncio.run(_run_build_runtime_wires_bot_session_store())
+
+
+async def _run_build_runtime_can_create_bot_polling_state_store(tmp_path) -> None:
+    database_path = tmp_path / "bot_polling.db"
+
+    runtime = await build_cyrene_ai_runtime(
+        bot_polling_state_database_path=database_path,
+    )
+    try:
+        assert runtime.bot_polling_state_store is not None
+        await runtime.bot_polling_state_store.save_offset("telegram", 1001)
+    finally:
+        await runtime.close()
+
+    next_runtime = await build_cyrene_ai_runtime(
+        bot_polling_state_database_path=database_path,
+    )
+    try:
+        assert next_runtime.bot_polling_state_store is not None
+        assert await next_runtime.bot_polling_state_store.get_offset("telegram") == 1001
+    finally:
+        await next_runtime.close()
+
+
+def test_build_cyrene_ai_runtime_can_create_bot_polling_state_store(tmp_path) -> None:
+    asyncio.run(_run_build_runtime_can_create_bot_polling_state_store(tmp_path))
+
+
+async def _run_build_runtime_rejects_duplicate_bot_polling_state_config(
+    tmp_path,
+) -> None:
+    with pytest.raises(ValueError):
+        await build_cyrene_ai_runtime(
+            bot_polling_state_store=InMemoryBotPollingStateStore(),
+            bot_polling_state_database_path=tmp_path / "bot_polling.db",
+        )
+
+
+def test_build_cyrene_ai_runtime_rejects_duplicate_bot_polling_state_config(
+    tmp_path,
+) -> None:
+    asyncio.run(
+        _run_build_runtime_rejects_duplicate_bot_polling_state_config(tmp_path)
+    )
 
 
 async def _run_build_runtime_rejects_duplicate_bot_session_config() -> None:

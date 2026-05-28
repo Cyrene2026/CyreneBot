@@ -6,6 +6,12 @@ from cyreneAI.core.schema.provider import ProviderModel
 
 
 def map_provider_model(item: Any) -> ProviderModel | None:
+    if isinstance(item, str):
+        model_id = item.strip()
+        if not model_id:
+            return None
+        return ProviderModel(model_id=model_id)
+
     model_id = _first_string_attr(item, "id", "name", "model")
     if not model_id:
         return None

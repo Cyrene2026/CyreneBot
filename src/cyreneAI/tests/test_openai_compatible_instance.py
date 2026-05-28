@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
-from cyreneAI.core.errors.provider import ProviderConfigurationError
+from cyreneAI.core.errors.provider import ProviderConfigurationError, ProviderError
 from cyreneAI.core.schema.embedding import EmbeddingRequest
 from cyreneAI.core.schema.message import (
     ContentPart,
@@ -63,13 +64,29 @@ class _FakeEmbeddings:
 
 
 class _FakeModels:
+    def __init__(
+        self,
+        *,
+        data: list[Any] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.data = data
+        self.error = error
+
     async def list(self):
+        if self.error is not None:
+            raise self.error
         return type(
             "ModelList",
             (),
             {
-                "data": [
-                    type("Model", (), {"id": "chat-model", "owned_by": "provider"})()
+                "data": self.data
+                or [
+                    type(
+                        "Model",
+                        (),
+                        {"id": "chat-model", "owned_by": "provider"},
+                    )()
                 ]
             },
         )()
@@ -80,6 +97,8 @@ class _FakeOpenAIClient:
         self,
         response: ChatCompletion | None = None,
         embedding_response: CreateEmbeddingResponse | None = None,
+        model_data: list[Any] | None = None,
+        model_error: Exception | None = None,
     ) -> None:
         if response is None:
             response = ChatCompletion(
@@ -101,7 +120,7 @@ class _FakeOpenAIClient:
             )
         self.chat = _FakeChat(response)
         self.embeddings = _FakeEmbeddings(embedding_response)
-        self.models = _FakeModels()
+        self.models = _FakeModels(data=model_data, error=model_error)
         self.closed = False
 
     async def close(self) -> None:
@@ -383,5 +402,45 @@ def test_openai_compatible_instance_lists_models() -> None:
 
         assert models[0].model_id == "chat-model"
         assert models[0].metadata == {"owned_by": "provider"}
+
+    asyncio.run(run())
+
+
+def test_openai_compatible_instance_lists_string_models() -> None:
+    async def run() -> None:
+        instance = OpenAICompatibleProviderInstance(
+            config=ProviderConfig(
+                provider_id="test",
+                provider_type=ProviderType.OPENAI_COMPATIBLE,
+                api_key="test-key",
+            ),
+            info=_provider_info(),
+            client=_FakeOpenAIClient(model_data=["chat-model"]),
+        )
+
+        models = await instance.list_models()
+
+        assert models[0].model_id == "chat-model"
+
+    asyncio.run(run())
+
+
+def test_openai_compatible_instance_translates_model_list_errors() -> None:
+    async def run() -> None:
+        error = AttributeError("'str' object has no attribute '_set_private_attributes'")
+        instance = OpenAICompatibleProviderInstance(
+            config=ProviderConfig(
+                provider_id="test",
+                provider_type=ProviderType.OPENAI_COMPATIBLE,
+                api_key="test-key",
+            ),
+            info=_provider_info(),
+            client=_FakeOpenAIClient(model_error=error),
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            await instance.list_models()
+
+        assert caught.value.cause is error
 
     asyncio.run(run())

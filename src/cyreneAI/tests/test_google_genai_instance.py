@@ -77,6 +77,30 @@ def _response() -> GenerateContentResponse:
     )
 
 
+def _image_content_response() -> GenerateContentResponse:
+    return GenerateContentResponse.model_validate(
+        {
+            "model_version": "gemini-image-test",
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": "aW1hZ2U=",
+                                }
+                            }
+                        ],
+                    },
+                    "finish_reason": "STOP",
+                }
+            ],
+        }
+    )
+
+
 class _FakeModels:
     def __init__(
         self,
@@ -251,7 +275,7 @@ def test_google_genai_instance_lists_models() -> None:
     asyncio.run(run())
 
 
-def test_google_genai_instance_generates_images() -> None:
+def test_google_genai_instance_generates_imagen_images() -> None:
     async def run() -> None:
         models = _FakeModels(response=_response())
         instance = GoogleGenAIProviderInstance(
@@ -287,5 +311,55 @@ def test_google_genai_instance_generates_images() -> None:
         assert response.images[0].b64_json == "aW1hZ2U="
         assert response.images[0].mime_type == "image/png"
         assert response.images[0].revised_prompt == "A small robot."
+
+    asyncio.run(run())
+
+
+def test_google_genai_instance_generates_content_images() -> None:
+    async def run() -> None:
+        models = _FakeModels(response=_image_content_response())
+        instance = GoogleGenAIProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeGoogleClient(models),
+        )
+
+        response = await instance.generate_image(
+            ImageGenerationRequest(
+                provider_id="google-test",
+                model="gemini-2.5-flash-image",
+                prompt="A small robot.",
+                count=1,
+                size="1:1",
+                metadata={
+                    "mime_type": "image/png",
+                },
+            )
+        )
+
+        assert models.payload == {
+            "model": "gemini-2.5-flash-image",
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": "A small robot.",
+                        }
+                    ],
+                }
+            ],
+            "config": {
+                "response_modalities": ["IMAGE"],
+                "image_config": {
+                    "aspect_ratio": "1:1",
+                    "output_mime_type": "image/png",
+                },
+            },
+        }
+        assert response.provider_id == "google-test"
+        assert response.model == "gemini-2.5-flash-image"
+        assert response.images[0].b64_json == "aW1hZ2U="
+        assert response.images[0].mime_type == "image/png"
 
     asyncio.run(run())

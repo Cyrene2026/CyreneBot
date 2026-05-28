@@ -41,6 +41,25 @@ class BotUpdateMapperProtocol(Protocol):
         ...
 
 
+class BotEventPollerProtocol(Protocol):
+    """
+    channel 事件拉取协议。
+    """
+
+    async def poll_events(
+        self,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+        timeout: int | None = None,
+        allowed_updates: list[str] | None = None,
+    ) -> list[BotEvent]:
+        """
+        从外部 channel 拉取并标准化事件。
+        """
+        ...
+
+
 class BotChannelRegistryProtocol(Protocol):
     """
     bot channel 注册器协议。

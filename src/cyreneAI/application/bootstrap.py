@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.bot_protocol import BotChannelRegistryProtocol
+from cyreneAI.core.bot.polling_protocol import BotPollingStateStoreProtocol
 from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.context.builder import ContextWindowBuilder
 from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
@@ -29,6 +30,7 @@ async def build_cyrene_ai_runtime(
     vector_store: VectorStoreProtocol | None = None,
     bot_channel_registry: BotChannelRegistryProtocol | None = None,
     bot_session_manager: BotSessionManager | None = None,
+    bot_polling_state_store: BotPollingStateStoreProtocol | None = None,
 ) -> CyreneAIRuntime:
     """
     构建只依赖 core protocol/manager 的应用运行时。
@@ -56,6 +58,7 @@ async def build_cyrene_ai_runtime(
         tool_manager=ToolManager(runtime_tool_registry),
         bot_channel_registry=bot_channel_registry,
         bot_session_manager=bot_session_manager,
+        bot_polling_state_store=bot_polling_state_store,
     )
 
 
