@@ -99,6 +99,12 @@ def build_bot_polling_state_database_path_from_env() -> str | None:
     return _env_str("CYRENEAI_BOT_POLLING_STATE_DATABASE_PATH")
 
 
+def build_context_database_path_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("CYRENEAI_CONTEXT_DATABASE_PATH") or "data/context.db"
+
+
 def build_plugin_paths_from_env() -> list[str]:
     load_dotenv()
 

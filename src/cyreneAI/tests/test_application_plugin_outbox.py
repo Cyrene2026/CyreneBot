@@ -7,6 +7,7 @@ from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.context.builder import ContextWindowBuilder
+from cyreneAI.core.errors.bot import BotActionError
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.bot import (
@@ -16,6 +17,15 @@ from cyreneAI.core.schema.bot import (
 )
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 from cyreneAI.infra.adapters.channels.memory import InMemoryBotChannel
+
+
+class FailingChannel:
+    def __init__(self) -> None:
+        self.actions = []
+
+    async def send(self, action) -> None:
+        self.actions.append(action)
+        raise BotActionError("send failed")
 
 
 def test_plugin_outbox_enforces_min_interval() -> None:
@@ -176,8 +186,32 @@ def test_plugin_outbox_allows_explicit_bypass_when_namespace_has_permission() ->
     asyncio.run(run())
 
 
+def test_plugin_outbox_returns_rejected_receipt_when_channel_send_fails() -> None:
+    async def run() -> None:
+        channel = FailingChannel()
+        runtime, clock = await _runtime(channel, "memory:user-1")
+        outbox = ApplicationPluginOutbox(
+            runtime,
+            min_interval_seconds=10,
+            max_per_session_per_hour=10,
+            max_per_plugin_per_hour=10,
+            clock=lambda: clock["now"],
+        )
+        messages = outbox.namespace("demo.plugin")
+
+        receipt = await messages.send("memory:user-1", text="one")
+
+        assert receipt.accepted is False
+        assert receipt.metadata["send_failed"] is True
+        assert receipt.metadata["reason"] == "send failed"
+        assert receipt.metadata["plugin_id"] == "demo.plugin"
+        assert len(channel.actions) == 1
+
+    asyncio.run(run())
+
+
 async def _runtime(
-    channel: InMemoryBotChannel,
+    channel,
     *session_ids: str,
 ) -> tuple[CyreneAIRuntime, dict[str, float]]:
     channel_registry = BotChannelRegistry()

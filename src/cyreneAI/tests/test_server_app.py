@@ -47,6 +47,7 @@ from cyreneAI.server.app import _log_plugin_startup_state
 from cyreneAI.server.config import (
     ServerSettings,
     build_bot_polling_state_database_path_from_env,
+    build_context_database_path_from_env,
     build_plugin_paths_from_env,
     build_plugin_storage_path_from_env,
     build_plugin_task_database_path_from_env,
@@ -380,6 +381,18 @@ def test_server_builds_telegram_polling_config_from_env(monkeypatch) -> None:
     assert build_telegram_polling_timeout_seconds_from_env() == 20
     assert build_telegram_polling_limit_from_env() == 10
     assert build_bot_polling_state_database_path_from_env() == "data/bot_polling.db"
+
+
+def test_server_builds_context_database_path_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("CYRENEAI_CONTEXT_DATABASE_PATH", "data/context.db")
+
+    assert build_context_database_path_from_env() == "data/context.db"
+
+
+def test_server_uses_default_context_database_path(monkeypatch) -> None:
+    monkeypatch.delenv("CYRENEAI_CONTEXT_DATABASE_PATH", raising=False)
+
+    assert build_context_database_path_from_env() == "data/context.db"
 
 
 def test_server_builds_plugin_paths_from_env(monkeypatch) -> None:

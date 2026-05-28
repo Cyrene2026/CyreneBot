@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Callable
 
 from cyreneAI.application.runtime import CyreneAIRuntime
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.errors.bot import BotStateError
 from cyreneAI.core.schema.bot import BotAction, BotActionType, BotMessage
 from cyreneAI.core.schema.message import ContentPart, ContentPartType
@@ -103,7 +104,18 @@ class ApplicationPluginOutbox:
         )
 
         channel = self._runtime.bot_channel_registry.get_channel(session.channel_id)
-        await channel.send(action)
+        try:
+            await channel.send(action)
+        except CyreneAIError as exc:
+            return PluginMessageReceipt(
+                session_id=session.session_id,
+                accepted=False,
+                metadata={
+                    **message_metadata,
+                    "send_failed": True,
+                    "reason": str(exc),
+                },
+            )
         return PluginMessageReceipt(
             session_id=session.session_id,
             metadata=message_metadata,

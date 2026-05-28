@@ -6,6 +6,7 @@ from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.server.app import create_app
 from cyreneAI.server.config import (
     build_bot_polling_state_database_path_from_env,
+    build_context_database_path_from_env,
     build_plugin_paths_from_env,
     build_plugin_storage_path_from_env,
     build_plugin_task_database_path_from_env,
@@ -32,6 +33,7 @@ def _build_app():
         asyncio.run(
             build_cyrene_ai_runtime(
                 provider_configs=build_provider_configs_from_env(),
+                context_database_path=build_context_database_path_from_env(),
                 telegram_bot_token=build_telegram_bot_token_from_env(),
                 bot_polling_state_database_path=build_bot_polling_state_database_path_from_env(),
                 plugin_storage_path=build_plugin_storage_path_from_env(),

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import logging
+
 from cyreneAI.application.bot.orchestrator import (
     ApplicationBotRequest,
     BotOrchestrator,
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.errors.bot import BotStateError
 from cyreneAI.core.schema.application import ApplicationBotDispatchResult
 from cyreneAI.core.schema.bot import BotAction
+
+
+logger = logging.getLogger(__name__)
 
 
 class BotDispatcher:
@@ -57,7 +63,16 @@ class BotDispatcher:
         sent_actions: list[BotAction] = []
         for action in bot_result.actions:
             channel = self._runtime.bot_channel_registry.get_channel(action.channel_id)
-            await channel.send(action)
+            try:
+                await channel.send(action)
+            except CyreneAIError:
+                logger.exception(
+                    "Bot action send failed; continuing dispatch: channel_id=%s session_id=%s action_type=%s",
+                    action.channel_id,
+                    action.session_id,
+                    action.action_type,
+                )
+                continue
             sent_actions.append(action)
 
         return ApplicationBotDispatchResult(

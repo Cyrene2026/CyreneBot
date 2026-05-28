@@ -444,6 +444,70 @@ def test_chat_orchestrator_allows_minimal_runtime() -> None:
     asyncio.run(_run_chat_orchestrator_without_optional_managers())
 
 
+async def _run_chat_orchestrator_uses_saved_session_history() -> None:
+    provider = FakeChatProvider(
+        [
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "DeepSeek 是一家 AI 公司。"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "我们刚聊过 DeepSeek。"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+        ]
+    )
+    provider_manager = await _build_provider_manager(provider)
+    context_store = FakeContextStore()
+    runtime = CyreneAIRuntime(
+        provider_manager=provider_manager,
+        context_builder=ContextWindowBuilder(),
+        context_manager=ContextManager(context_store),
+    )
+    orchestrator = ChatOrchestrator(runtime)
+
+    await orchestrator.chat(
+        ApplicationChatRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            messages=[_message(MessageRole.USER, "deepseek 是什么")],
+        )
+    )
+    second_result = await orchestrator.chat(
+        ApplicationChatRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            messages=[_message(MessageRole.USER, "回忆下我们会话内容")],
+        )
+    )
+
+    assert provider.requests[0].messages == [
+        _message(MessageRole.USER, "deepseek 是什么"),
+    ]
+    assert provider.requests[1].messages == [
+        _message(MessageRole.USER, "deepseek 是什么"),
+        _message(MessageRole.ASSISTANT, "DeepSeek 是一家 AI 公司。"),
+        _message(MessageRole.USER, "回忆下我们会话内容"),
+    ]
+    assert len(context_store.snapshots) == 2
+    assert _context_messages(second_result.context_snapshot) == [
+        _message(MessageRole.USER, "deepseek 是什么"),
+        _message(MessageRole.ASSISTANT, "DeepSeek 是一家 AI 公司。"),
+        _message(MessageRole.USER, "回忆下我们会话内容"),
+        _message(MessageRole.ASSISTANT, "我们刚聊过 DeepSeek。"),
+    ]
+
+
+def test_chat_orchestrator_uses_saved_session_history() -> None:
+    asyncio.run(_run_chat_orchestrator_uses_saved_session_history())
+
+
 async def _run_chat_orchestrator_maps_context_item_source() -> None:
     provider = FakeChatProvider(
         ChatResponse(
@@ -475,3 +539,12 @@ async def _run_chat_orchestrator_maps_context_item_source() -> None:
 
 def test_chat_orchestrator_maps_content_only_context_item_by_source() -> None:
     asyncio.run(_run_chat_orchestrator_maps_context_item_source())
+
+
+def _context_messages(snapshot: ContextSnapshot) -> list[Message]:
+    messages: list[Message] = []
+    for segment in snapshot.window.segments:
+        for item in segment.items:
+            if item.message is not None:
+                messages.append(item.message)
+    return messages

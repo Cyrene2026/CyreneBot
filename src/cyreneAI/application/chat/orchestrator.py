@@ -15,6 +15,7 @@ from cyreneAI.core.schema.context import (
     ContextBuildResult,
     ContextItem,
     ContextItemSource,
+    ContextItemType,
     ContextSegment,
     ContextSegmentRole,
     ContextSnapshot,
@@ -37,18 +38,22 @@ class ChatOrchestrator:
         """
         编排一次聊天请求
         """
-        context_result = await self._build_context(request)
+        history_messages = await self._load_session_history_messages(
+            request.session_id
+        )
+        context_request = request.model_copy(
+            update={
+                "messages": [
+                    *history_messages,
+                    *request.messages,
+                ]
+            }
+        )
+        context_result = await self._build_context(context_request)
         context_window = _append_context_segments(
             context_result.window,
             request.additional_context_segments,
         )
-        context_snapshot = _build_context_snapshot(
-            request=request,
-            context_window=context_window,
-        )
-        if self._runtime.context_manager is not None:
-            await self._runtime.context_manager.save(context_snapshot)
-
         skill_bundle = self._build_skill_bundle(request)
         allowed_tool_names = _resolve_allowed_tool_names(
             request_allowed_tool_names=request.allowed_tool_names,
@@ -69,6 +74,17 @@ class ChatOrchestrator:
             response=response,
             allowed_tool_names=allowed_tool_names,
         )
+
+        saved_context_window = _append_response_message(
+            context_window,
+            response.message,
+        )
+        context_snapshot = _build_context_snapshot(
+            request=request,
+            context_window=saved_context_window,
+        )
+        if self._runtime.context_manager is not None:
+            await self._runtime.context_manager.save(context_snapshot)
 
         return ApplicationChatResult(
             response=response,
@@ -126,6 +142,14 @@ class ChatOrchestrator:
                 metadata=request.metadata.copy(),
             )
         )
+
+    async def _load_session_history_messages(self, session_id: str) -> list[Message]:
+        if self._runtime.context_manager is None:
+            return []
+        snapshots = await self._runtime.context_manager.list_by_session(session_id)
+        if not snapshots:
+            return []
+        return _context_window_to_messages(snapshots[-1].window)
 
     def _build_skill_bundle(
         self,
@@ -256,6 +280,51 @@ def _append_context_segments(
             ]
         }
     )
+
+
+def _append_response_message(
+    context_window: ContextWindow,
+    message: Message | None,
+) -> ContextWindow:
+    if message is None:
+        return context_window
+
+    segments = list(context_window.segments)
+    history_index = next(
+        (
+            index
+            for index, segment in enumerate(segments)
+            if segment.role == ContextSegmentRole.HISTORY
+        ),
+        None,
+    )
+    message_index = len(_context_window_to_messages(context_window))
+    response_item = ContextItem(
+        item_id=f"{context_window.window_id}:assistant:{message_index}",
+        type=ContextItemType.MESSAGE,
+        source=ContextItemSource.ASSISTANT,
+        message=message,
+    )
+    if history_index is None:
+        segments.append(
+            ContextSegment(
+                segment_id=f"{context_window.window_id}:history",
+                role=ContextSegmentRole.HISTORY,
+                items=[response_item],
+            )
+        )
+    else:
+        history = segments[history_index]
+        segments[history_index] = history.model_copy(
+            update={
+                "items": [
+                    *history.items,
+                    response_item,
+                ],
+                "token_count": None,
+            }
+        )
+    return context_window.model_copy(update={"segments": segments})
 
 
 def _resolve_allowed_tool_names(

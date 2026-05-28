@@ -11,7 +11,7 @@ from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.context.builder import ContextWindowBuilder
-from cyreneAI.core.errors.bot import BotStateError
+from cyreneAI.core.errors.bot import BotActionError, BotStateError
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.bot import (
@@ -85,6 +85,11 @@ class FakeChatProvider:
 
     async def close(self) -> None:
         pass
+
+
+class FailingChannel:
+    async def send(self, action) -> None:
+        raise BotActionError("send failed")
 
 
 async def _build_provider_manager(provider: FakeChatProvider) -> ProviderManager:
@@ -201,5 +206,37 @@ def test_bot_dispatcher_updates_session_state_when_configured() -> None:
         assert (await store.get_state("memory:user-1")) == result.session_state
         assert provider.requests[0].metadata["bot_session_id"] == "memory:user-1"
         assert provider.requests[0].metadata["bot_turn_count"] == "1"
+
+    asyncio.run(run())
+
+
+def test_bot_dispatcher_isolates_action_send_failure() -> None:
+    async def run() -> None:
+        provider = FakeChatProvider()
+        channel_registry = BotChannelRegistry()
+        channel_registry.register(
+            BotChannelDefinition(
+                channel_id="memory",
+                name="Memory",
+            ),
+            FailingChannel(),
+        )
+        runtime = await _build_runtime(
+            provider=provider,
+            channel_registry=channel_registry,
+        )
+
+        result = await BotDispatcher(runtime).dispatch(
+            ApplicationBotRequest(
+                event=_event(),
+                provider_id="provider-1",
+                model="fake-model",
+            )
+        )
+
+        assert len(provider.requests) == 1
+        assert result.bot_result.actions[0].message is not None
+        assert result.bot_result.actions[0].message.content == _content("pong")
+        assert result.sent_actions == []
 
     asyncio.run(run())
