@@ -13,7 +13,13 @@ from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.bot.session_protocol import BotSessionStoreProtocol
 from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
 from cyreneAI.core.context.manager import ContextManager
-from cyreneAI.core.plugin.plugin_protocol import PluginLoaderProtocol
+from cyreneAI.core.plugin.plugin_protocol import (
+    PluginAssetsProtocol,
+    PluginLoaderProtocol,
+    PluginStorageProtocol,
+    PluginTaskSchedulerProtocol,
+    PluginTaskStoreProtocol,
+)
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.provider.registry import ProviderRegistry
@@ -26,6 +32,9 @@ from cyreneAI.infra.adapters.skills.filesystem.loader import FileSystemSkillLoad
 from cyreneAI.infra.adapters.bot_polling_states.sqlite.builder import (
     create_sqlite_bot_polling_state_store,
 )
+from cyreneAI.infra.adapters.plugins.filesystem import FileSystemPluginStorage
+from cyreneAI.infra.adapters.plugins.sqlite import create_sqlite_plugin_task_store
+from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 from cyreneAI.infra.adapters.vector_stores.sqlite.builder import (
     create_sqlite_vector_store,
 )
@@ -56,6 +65,12 @@ async def build_cyrene_ai_runtime(
     bot_polling_state_store: BotPollingStateStoreProtocol | None = None,
     bot_polling_state_database_path: str | Path | None = None,
     plugin_loaders: list[PluginLoaderProtocol] | None = None,
+    plugin_storage: PluginStorageProtocol | None = None,
+    plugin_storage_path: str | Path | None = None,
+    plugin_assets: PluginAssetsProtocol | None = None,
+    plugin_task_scheduler: PluginTaskSchedulerProtocol | None = None,
+    plugin_task_store: PluginTaskStoreProtocol | None = None,
+    plugin_task_database_path: str | Path | None = None,
     register_builtin_plugins: bool = True,
 ) -> CyreneAIRuntime:
     """
@@ -112,6 +127,32 @@ async def build_cyrene_ai_runtime(
             bot_polling_state_database_path
         )
 
+    runtime_plugin_storage = plugin_storage
+    if runtime_plugin_storage is not None and plugin_storage_path is not None:
+        raise ValueError("plugin_storage and plugin_storage_path cannot both be set")
+    if runtime_plugin_storage is None and plugin_storage_path is not None:
+        runtime_plugin_storage = FileSystemPluginStorage(plugin_storage_path)
+
+    if plugin_task_scheduler is not None and (
+        plugin_task_store is not None or plugin_task_database_path is not None
+    ):
+        raise ValueError(
+            "plugin_task_scheduler cannot be combined with plugin task store options"
+        )
+
+    runtime_plugin_task_store = plugin_task_store
+    if (
+        runtime_plugin_task_store is not None
+        and plugin_task_database_path is not None
+    ):
+        raise ValueError(
+            "plugin_task_store and plugin_task_database_path cannot both be set"
+        )
+    if runtime_plugin_task_store is None and plugin_task_database_path is not None:
+        runtime_plugin_task_store = await create_sqlite_plugin_task_store(
+            plugin_task_database_path
+        )
+
     runtime_bot_channel_registry = bot_channel_registry
     if enable_memory_bot_channel or telegram_bot_token:
         if runtime_bot_channel_registry is None:
@@ -124,6 +165,12 @@ async def build_cyrene_ai_runtime(
             token=telegram_bot_token,
         )
 
+    if (
+        runtime_bot_session_manager is None
+        and runtime_bot_channel_registry is not None
+    ):
+        runtime_bot_session_manager = BotSessionManager(InMemoryBotSessionStore())
+
     return await build_application_runtime(
         provider_manager=provider_manager,
         context_builder=context_builder,
@@ -131,6 +178,10 @@ async def build_cyrene_ai_runtime(
         skill_manager=skill_manager,
         skill_registry=skill_registry if skill_path is not None else None,
         plugin_loaders=plugin_loaders,
+        plugin_storage=runtime_plugin_storage,
+        plugin_assets=plugin_assets,
+        plugin_task_scheduler=plugin_task_scheduler,
+        plugin_task_store=runtime_plugin_task_store,
         register_builtin_plugins=register_builtin_plugins,
         tool_registry=tool_registry,
         vector_store=runtime_vector_store,

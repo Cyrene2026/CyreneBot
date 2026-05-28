@@ -10,12 +10,22 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandRequest,
     PluginCommandResult,
     PluginDefinition,
+    PluginEvent,
+    PluginEventDefinition,
+    PluginEventRequest,
+    PluginEventResult,
+    PluginEventType,
 )
 
 
 class _FakePluginExecutor:
     async def execute(self, request: PluginCommandRequest) -> PluginCommandResult:
         return PluginCommandResult(metadata={"command": request.command.name})
+
+
+class _FakePluginEventExecutor:
+    async def execute(self, request: PluginEventRequest) -> PluginEventResult:
+        return PluginEventResult(metadata={"event": request.event.event_type})
 
 
 def _definition(
@@ -25,6 +35,7 @@ def _definition(
     aliases: list[str] | None = None,
     enabled: bool = True,
     command_enabled: bool = True,
+    events: list[PluginEventDefinition] | None = None,
 ) -> PluginDefinition:
     return PluginDefinition(
         plugin_id=plugin_id,
@@ -39,6 +50,7 @@ def _definition(
                 enabled=command_enabled,
             )
         ],
+        events=events or [],
     )
 
 
@@ -144,3 +156,28 @@ def test_plugin_registry_unregisters_plugin_and_commands() -> None:
     assert not registry.exists("builtin.help")
     with pytest.raises(PluginNotFoundError):
         registry.resolve_command("help")
+
+
+def test_plugin_registry_lists_and_resolves_events() -> None:
+    registry = PluginRegistry()
+    definition = _definition(
+        events=[PluginEventDefinition(event_type=PluginEventType.MESSAGE)]
+    )
+    event_executor = _FakePluginEventExecutor()
+
+    registry.register(
+        definition,
+        _FakePluginExecutor(),
+        event_executor=event_executor,
+    )
+
+    event = PluginEvent(
+        event_id="event-1",
+        event_type=PluginEventType.MESSAGE,
+        session_id="session-1",
+    )
+
+    assert registry.list_events() == definition.events
+    assert registry.resolve_events(event) == [
+        (definition, definition.events[0], event_executor)
+    ]

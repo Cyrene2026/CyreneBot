@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from cyreneAI.infra.adapters.plugins.sqlite.tables import create_plugin_task_tables
+from cyreneAI.infra.adapters.plugins.sqlite.task_store import SQLitePluginTaskStore
+
+
+def create_sqlite_plugin_task_engine(
+    path: str | Path,
+    *,
+    echo: bool = False,
+) -> AsyncEngine:
+    """
+    创建 SQLite 插件任务 AsyncEngine。
+    """
+    return create_async_engine(
+        _build_sqlite_url(path),
+        echo=echo,
+    )
+
+
+async def create_sqlite_plugin_task_store(
+    path: str | Path,
+    *,
+    echo: bool = False,
+) -> SQLitePluginTaskStore:
+    """
+    创建 SQLite 插件任务存储。
+    """
+    engine = create_sqlite_plugin_task_engine(path, echo=echo)
+    await create_plugin_task_tables(engine)
+    return SQLitePluginTaskStore(engine)
+
+
+def _build_sqlite_url(path: str | Path) -> str:
+    if str(path) == ":memory:":
+        return "sqlite+aiosqlite:///:memory:"
+
+    database_path = Path(path)
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite+aiosqlite:///{database_path.as_posix()}"

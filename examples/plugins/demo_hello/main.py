@@ -1,11 +1,7 @@
-from cyreneAI.plugin_api import CyreneBot, text
+from cyreneAI.plugin_api import CyreneBot
+
+from routers.basic import router as basic_router
 
 
 plugin = CyreneBot()
-
-
-@plugin.command("/hello", aliases=["hi"])
-async def hello(request, ctx):
-    """Say hello."""
-    name = request.command.args_text or "world"
-    return text(request, f"Hello, {name}!")
+plugin.include_router(basic_router)

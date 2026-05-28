@@ -10,6 +10,12 @@ from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
 from cyreneAI.core.context.manager import ContextManager
 from cyreneAI.core.errors.base import StateError
 from cyreneAI.core.plugin.manager import PluginManager
+from cyreneAI.core.plugin.plugin_protocol import (
+    PluginAssetsProtocol,
+    PluginOutboxProtocol,
+    PluginTaskSchedulerProtocol,
+    PluginStorageProtocol,
+)
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.skill.manager import SkillManager
 from cyreneAI.core.tool.manager import ToolManager
@@ -33,6 +39,10 @@ class CyreneAIRuntime:
     skill_manager: SkillManager | None = None
     plugin_manager: PluginManager | None = None
     plugin_host: PluginHost | None = None
+    plugin_storage: PluginStorageProtocol | None = None
+    plugin_assets: PluginAssetsProtocol | None = None
+    plugin_outbox: PluginOutboxProtocol | None = None
+    plugin_task_scheduler: PluginTaskSchedulerProtocol | None = None
     tool_registry: ToolRegistryProtocol | None = None
     tool_manager: ToolManager | None = None
     bot_channel_registry: BotChannelRegistryProtocol | None = None
@@ -44,6 +54,12 @@ class CyreneAIRuntime:
         关闭运行时持有的外部资源。
         """
         errors: list[Exception] = []
+
+        if self.plugin_task_scheduler is not None:
+            try:
+                await self.plugin_task_scheduler.shutdown()
+            except Exception as exc:
+                errors.append(exc)
 
         try:
             await self.provider_manager.close_all()
@@ -65,6 +81,18 @@ class CyreneAIRuntime:
         if self.bot_polling_state_store is not None:
             try:
                 await self.bot_polling_state_store.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        if self.plugin_storage is not None:
+            try:
+                await self.plugin_storage.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        if self.plugin_assets is not None:
+            try:
+                await self.plugin_assets.close()
             except Exception as exc:
                 errors.append(exc)
 

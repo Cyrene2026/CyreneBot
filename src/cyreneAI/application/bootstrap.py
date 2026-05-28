@@ -5,6 +5,8 @@ from cyreneAI.application.plugins.builtin_bot_commands import (
     register_builtin_bot_command_plugins,
 )
 from cyreneAI.application.plugins.host import PluginHost
+from cyreneAI.application.plugins.outbox import ApplicationPluginOutbox
+from cyreneAI.application.plugins.tasks import ApplicationPluginTaskScheduler
 from cyreneAI.core.bot.bot_protocol import BotChannelRegistryProtocol
 from cyreneAI.core.bot.polling_protocol import BotPollingStateStoreProtocol
 from cyreneAI.core.bot.session_manager import BotSessionManager
@@ -13,8 +15,12 @@ from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
 from cyreneAI.core.context.manager import ContextManager
 from cyreneAI.core.plugin.manager import PluginManager
 from cyreneAI.core.plugin.plugin_protocol import (
+    PluginAssetsProtocol,
     PluginLoaderProtocol,
     PluginRegistryProtocol,
+    PluginStorageProtocol,
+    PluginTaskSchedulerProtocol,
+    PluginTaskStoreProtocol,
 )
 from cyreneAI.core.plugin.registry import PluginRegistry
 from cyreneAI.core.provider.factory import ProviderFactory
@@ -41,6 +47,10 @@ async def build_cyrene_ai_runtime(
     plugin_registry: PluginRegistryProtocol | None = None,
     plugin_manager: PluginManager | None = None,
     plugin_loaders: list[PluginLoaderProtocol] | None = None,
+    plugin_storage: PluginStorageProtocol | None = None,
+    plugin_assets: PluginAssetsProtocol | None = None,
+    plugin_task_scheduler: PluginTaskSchedulerProtocol | None = None,
+    plugin_task_store: PluginTaskStoreProtocol | None = None,
     register_builtin_plugins: bool = True,
     tool_registry: ToolRegistryProtocol | None = None,
     vector_store: VectorStoreProtocol | None = None,
@@ -62,6 +72,16 @@ async def build_cyrene_ai_runtime(
     runtime_tool_registry = tool_registry or ToolRegistry()
     runtime_plugin_registry = plugin_registry or PluginRegistry()
     runtime_plugin_manager = plugin_manager or PluginManager(runtime_plugin_registry)
+    if plugin_task_scheduler is not None and plugin_task_store is not None:
+        raise ValueError(
+            "plugin_task_scheduler and plugin_task_store cannot both be set"
+        )
+    runtime_plugin_task_scheduler = plugin_task_scheduler
+    if runtime_plugin_task_scheduler is None:
+        runtime_plugin_task_scheduler = ApplicationPluginTaskScheduler(
+            store=plugin_task_store,
+        )
+    await runtime_plugin_task_scheduler.start()
 
     runtime = CyreneAIRuntime(
         provider_manager=runtime_provider_manager,
@@ -74,12 +94,16 @@ async def build_cyrene_ai_runtime(
         ),
         skill_manager=skill_manager,
         plugin_manager=runtime_plugin_manager,
+        plugin_storage=plugin_storage,
+        plugin_assets=plugin_assets,
+        plugin_task_scheduler=runtime_plugin_task_scheduler,
         tool_registry=runtime_tool_registry,
         tool_manager=ToolManager(runtime_tool_registry),
         bot_channel_registry=bot_channel_registry,
         bot_session_manager=bot_session_manager,
         bot_polling_state_store=bot_polling_state_store,
     )
+    runtime.plugin_outbox = ApplicationPluginOutbox(runtime)
     runtime_plugin_host = PluginHost(
         runtime=runtime,
         registry=runtime_plugin_registry,

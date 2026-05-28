@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from cyreneAI.application.chat.orchestrator import (
     ApplicationChatRequest,
     ApplicationChatResult,
@@ -10,6 +12,7 @@ from cyreneAI.application.bot.command_parser import (
     should_parse_bot_command,
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.errors.plugin import PluginAuthorizationError, PluginNotFoundError
 from cyreneAI.core.schema.bot import (
     BotAction,
@@ -22,6 +25,10 @@ from cyreneAI.core.errors.bot import BotInputError, BotUnsupportedEventError
 from cyreneAI.core.schema.application import ApplicationBotRequest, ApplicationBotResult
 from cyreneAI.core.schema.message import ContentPart, ContentPartType, Message, MessageRole
 from cyreneAI.core.schema.plugin import PluginCommandRequest
+from cyreneAI.core.schema.plugin import PluginEvent, PluginEventType
+
+
+logger = logging.getLogger(__name__)
 
 
 class BotOrchestrator:
@@ -37,8 +44,18 @@ class BotOrchestrator:
         """
         处理一次标准化 bot 事件。
         """
+        plugin_event_actions = await self._dispatch_plugin_event(request)
+
         if should_parse_bot_command(request.event):
-            return await self._command_event_to_result(request)
+            command_result = await self._command_event_to_result(request)
+            return command_result.model_copy(
+                update={
+                    "actions": [
+                        *plugin_event_actions,
+                        *command_result.actions,
+                    ]
+                }
+            )
 
         if request.event.event_type != BotEventType.MESSAGE:
             raise BotUnsupportedEventError(
@@ -74,7 +91,7 @@ class BotOrchestrator:
             chat_result=chat_result,
         )
         return ApplicationBotResult(
-            actions=[action],
+            actions=[*plugin_event_actions, action],
             chat_result=chat_result,
             tool_results=chat_result.tool_results,
             metadata={
@@ -84,13 +101,35 @@ class BotOrchestrator:
             },
         )
 
+    async def _dispatch_plugin_event(
+        self,
+        request: ApplicationBotRequest,
+    ) -> list[BotAction]:
+        plugin_manager = self._runtime.plugin_manager
+        if plugin_manager is None:
+            return []
+
+        try:
+            results = await plugin_manager.dispatch_event(
+                _bot_event_to_plugin_event(request.event),
+                metadata=request.metadata,
+            )
+        except CyreneAIError:
+            logger.exception(
+                "Plugin event dispatch failed; continuing bot main reply path"
+            )
+            return []
+        return [action for result in results for action in result.actions]
 
     async def _command_event_to_result(
         self,
         request: ApplicationBotRequest,
     ) -> ApplicationBotResult:
-        command = parse_bot_command(request.event)
         plugin_manager = self._runtime.plugin_manager
+        command = parse_bot_command(
+            request.event,
+            known_command_names=_known_plugin_command_names(plugin_manager),
+        )
         if plugin_manager is None:
             actions = [_unknown_command_action(request, command.name)]
             return _command_actions_to_result(request, command.name, command.args, actions)
@@ -206,6 +245,48 @@ def _metadata_is_admin(value: object) -> bool:
     if isinstance(value, str):
         return value.casefold() == "true"
     return False
+
+
+def _known_plugin_command_names(plugin_manager: object | None) -> set[str] | None:
+    if plugin_manager is None:
+        return None
+    return {
+        name
+        for command in plugin_manager.list_commands()
+        for name in (command.name, *command.aliases)
+    }
+
+
+def _bot_event_to_plugin_event(event: BotEvent) -> PluginEvent:
+    return PluginEvent(
+        event_id=event.event_id,
+        event_type=_plugin_event_type(event.event_type),
+        session_id=event.session_id,
+        user_id=event.user_id,
+        thread_id=event.thread_id,
+        message_id=event.message.message_id if event.message is not None else None,
+        text=_bot_event_text(event),
+    )
+
+
+def _plugin_event_type(event_type: BotEventType) -> PluginEventType:
+    try:
+        return PluginEventType(str(event_type))
+    except ValueError:
+        return PluginEventType.UNKNOWN
+
+
+def _bot_event_text(event: BotEvent) -> str | None:
+    if event.message is None:
+        return None
+    texts = [
+        part.text
+        for part in event.message.content
+        if part.type == ContentPartType.TEXT and part.text is not None
+    ]
+    if not texts:
+        return None
+    return "".join(texts)
 
 
 def _bot_event_to_user_message(event: BotEvent) -> Message:

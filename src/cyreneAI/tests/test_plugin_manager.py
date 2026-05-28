@@ -14,6 +14,11 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandRequest,
     PluginCommandResult,
     PluginDefinition,
+    PluginEvent,
+    PluginEventDefinition,
+    PluginEventRequest,
+    PluginEventResult,
+    PluginEventType,
 )
 
 
@@ -29,6 +34,18 @@ class _RecordingPluginExecutor:
         return PluginCommandResult(metadata={"plugin": "help"})
 
 
+class _RecordingPluginEventExecutor:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[PluginEventRequest] = []
+        self.error = error
+
+    async def execute(self, request: PluginEventRequest) -> PluginEventResult:
+        self.calls.append(request)
+        if self.error is not None:
+            raise self.error
+        return PluginEventResult(metadata={"event": request.event.text})
+
+
 def _definition(*, admin_required: bool = False) -> PluginDefinition:
     return PluginDefinition(
         plugin_id="builtin.help",
@@ -39,6 +56,12 @@ def _definition(*, admin_required: bool = False) -> PluginDefinition:
                 name="help",
                 description="Show available commands.",
                 admin_required=admin_required,
+            )
+        ],
+        events=[
+            PluginEventDefinition(
+                event_type=PluginEventType.MESSAGE,
+                description="Observe messages.",
             )
         ],
     )
@@ -59,6 +82,7 @@ def test_plugin_manager_lists_plugins_and_commands() -> None:
 
     assert manager.list_plugins() == [definition]
     assert manager.list_commands() == definition.commands
+    assert manager.list_events() == definition.events
 
 
 async def _run_execute_command() -> None:
@@ -128,3 +152,33 @@ def test_plugin_manager_wraps_unexpected_errors() -> None:
     import asyncio
 
     asyncio.run(_run_wraps_unexpected_errors())
+
+
+async def _run_dispatch_event() -> None:
+    executor = _RecordingPluginEventExecutor()
+    registry = PluginRegistry()
+    registry.register(
+        _definition(),
+        _RecordingPluginExecutor(),
+        event_executor=executor,
+    )
+    manager = PluginManager(registry)
+    event = PluginEvent(
+        event_id="event-1",
+        event_type=PluginEventType.MESSAGE,
+        session_id="session-1",
+        text="hello",
+    )
+
+    results = await manager.dispatch_event(event, metadata={"source": "test"})
+
+    assert len(executor.calls) == 1
+    assert executor.calls[0].event is event
+    assert executor.calls[0].metadata == {"source": "test"}
+    assert results[0].metadata == {"event": "hello"}
+
+
+def test_plugin_manager_dispatches_event() -> None:
+    import asyncio
+
+    asyncio.run(_run_dispatch_event())

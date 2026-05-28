@@ -11,7 +11,10 @@ from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputErr
 from cyreneAI.core.schema.bot import BotCommand, BotEvent, BotEventType, BotMessage
 from cyreneAI.core.schema.message import ContentPart, ContentPartType
 from cyreneAI.core.schema.plugin import PluginCommandRequest
-from cyreneAI.infra.adapters.plugins.filesystem import FileSystemPluginLoader
+from cyreneAI.infra.adapters.plugins.filesystem import (
+    FileSystemPluginAssets,
+    FileSystemPluginLoader,
+)
 
 
 def _event() -> BotEvent:
@@ -125,6 +128,25 @@ def test_filesystem_plugin_loader_loads_plugins_from_directory(tmp_path) -> None
         "demo.hello",
         "demo.hi",
     ]
+
+
+def test_filesystem_plugin_loader_registers_project_assets(tmp_path) -> None:
+    async def run() -> None:
+        plugin_path = tmp_path / "demo_hello"
+        _write_hello_plugin(plugin_path)
+        (plugin_path / "assets" / "prompts").mkdir(parents=True)
+        (plugin_path / "assets" / "prompts" / "hello.txt").write_text(
+            "Hello assets.",
+            encoding="utf-8",
+        )
+        assets = FileSystemPluginAssets()
+
+        FileSystemPluginLoader(plugin_path, plugin_assets=assets).load()
+
+        namespace = assets.namespace("demo.hello")
+        assert await namespace.read_text("prompts/hello.txt") == "Hello assets."
+
+    asyncio.run(run())
 
 
 def test_filesystem_plugin_loader_rejects_missing_path(tmp_path) -> None:

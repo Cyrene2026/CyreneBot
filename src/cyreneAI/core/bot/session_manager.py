@@ -59,6 +59,12 @@ class BotSessionManager:
             await self._store.save_state(state)
             return state
 
+    async def get_state(self, session_id: str) -> BotConversationState:
+        """
+        获取已存在的会话状态。
+        """
+        return await self._store.get_state(session_id)
+
     async def update_activity(
         self,
         *,

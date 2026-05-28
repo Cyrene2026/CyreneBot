@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -31,6 +32,8 @@ class PluginCapability(StrEnum):
     RAG = "rag"
     TOOL = "tool"
     SKILL = "skill"
+    TASK = "task"
+    EVENT = "event"
 
 
 class PluginPermission(StrEnum):
@@ -47,7 +50,35 @@ class PluginPermission(StrEnum):
     SKILL = "skill"
     RAG = "rag"
     STORAGE = "storage"
+    ASSETS = "assets"
+    TASK = "task"
+    MESSAGE_SEND = "message_send"
+    MESSAGE_SEND_UNLIMITED = "message_send_unlimited"
     NETWORK = "network"
+
+
+class PluginTaskStatus(StrEnum):
+    """
+    插件受管任务实例状态。
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
+class PluginEventType(StrEnum):
+    """
+    插件可订阅的窄事件类型。
+    """
+
+    MESSAGE = "message"
+    COMMAND = "command"
+    MEMBER_JOINED = "member_joined"
+    MEMBER_LEFT = "member_left"
+    UNKNOWN = "unknown"
 
 
 class PluginCommandDefinition(PluginBase):
@@ -60,6 +91,31 @@ class PluginCommandDefinition(PluginBase):
     usage: str | None = None
     aliases: list[str] = Field(default_factory=list)
     admin_required: bool = False
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginTaskDefinition(PluginBase):
+    """
+    插件声明的受管后台任务定义。
+    """
+
+    name: str
+    description: str = ""
+    interval_seconds: float | None = None
+    daily_at: str | None = None
+    run_on_start: bool = False
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginEventDefinition(PluginBase):
+    """
+    插件声明的事件订阅定义。
+    """
+
+    event_type: PluginEventType
+    description: str = ""
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -81,6 +137,8 @@ class PluginDefinition(PluginBase):
     capabilities: list[PluginCapability] = Field(default_factory=list)
     permissions: list[PluginPermission] = Field(default_factory=list)
     commands: list[PluginCommandDefinition] = Field(default_factory=list)
+    tasks: list[PluginTaskDefinition] = Field(default_factory=list)
+    events: list[PluginEventDefinition] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +162,8 @@ class PluginManifest(PluginBase):
     capabilities: list[PluginCapability] = Field(default_factory=list)
     permissions: list[PluginPermission] = Field(default_factory=list)
     commands: list[PluginCommandDefinition] = Field(default_factory=list)
+    tasks: list[PluginTaskDefinition] = Field(default_factory=list)
+    events: list[PluginEventDefinition] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -125,10 +185,95 @@ class PluginManifest(PluginBase):
             capabilities=list(self.capabilities),
             permissions=list(self.permissions),
             commands=list(self.commands),
+            tasks=list(self.tasks),
+            events=list(self.events),
             enabled=self.enabled,
             builtin=self.builtin,
             metadata=dict(self.metadata),
         )
+
+
+class PluginTaskRequest(PluginBase):
+    """
+    插件后台任务执行请求。
+    """
+
+    task: PluginTaskDefinition
+    payload: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginTaskResult(PluginBase):
+    """
+    插件后台任务执行结果。
+    """
+
+    handled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginScheduledTask(PluginBase):
+    """
+    插件受管任务实例记录。
+    """
+
+    task_id: str
+    plugin_id: str
+    task_name: str
+    run_at: datetime
+    payload: dict[str, Any] = Field(default_factory=dict)
+    key: str | None = None
+    status: PluginTaskStatus = PluginTaskStatus.PENDING
+    last_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PluginEvent(PluginBase):
+    """
+    插件 handler 接收的窄事件对象。
+
+    该对象只暴露插件需要的会话与消息字段，不携带 channel adapter 的原始
+    payload 或平台私有 metadata。
+    """
+
+    event_id: str
+    event_type: PluginEventType
+    session_id: str
+    user_id: str | None = None
+    thread_id: str | None = None
+    message_id: str | None = None
+    text: str | None = None
+
+
+class PluginEventRequest(PluginBase):
+    """
+    插件事件执行请求。
+    """
+
+    route: PluginEventDefinition
+    event: PluginEvent
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginEventResult(PluginBase):
+    """
+    插件事件执行结果。
+    """
+
+    handled: bool = True
+    actions: list[BotAction] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginMessageReceipt(PluginBase):
+    """
+    插件出站消息发送回执。
+    """
+
+    session_id: str
+    accepted: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PluginCommandRequest(PluginBase):

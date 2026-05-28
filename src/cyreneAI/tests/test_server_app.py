@@ -48,6 +48,8 @@ from cyreneAI.server.config import (
     ServerSettings,
     build_bot_polling_state_database_path_from_env,
     build_plugin_paths_from_env,
+    build_plugin_storage_path_from_env,
+    build_plugin_task_database_path_from_env,
     build_provider_configs_from_env,
     build_telegram_bot_token_from_env,
     build_telegram_polling_enabled_from_env,
@@ -396,6 +398,21 @@ def test_server_disables_plugin_paths_by_default(monkeypatch) -> None:
     monkeypatch.setenv("CYRENEAI_PLUGIN_PATH", "")
 
     assert build_plugin_paths_from_env() == []
+
+
+def test_server_builds_plugin_storage_path_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("CYRENEAI_PLUGIN_STORAGE_PATH", "data/plugin_storage")
+
+    assert build_plugin_storage_path_from_env() == "data/plugin_storage"
+
+
+def test_server_builds_plugin_task_database_path_from_env(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "CYRENEAI_PLUGIN_TASK_DATABASE_PATH",
+        "data/plugin_tasks.db",
+    )
+
+    assert build_plugin_task_database_path_from_env() == "data/plugin_tasks.db"
 
 
 def test_server_logs_loaded_plugins_and_commands(caplog) -> None:

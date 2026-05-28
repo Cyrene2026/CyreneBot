@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import suppress
 from typing import Any, cast
 
@@ -9,6 +10,9 @@ from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.bot_protocol import BotEventPollerProtocol
 from cyreneAI.core.schema.application import ApplicationChannelEventsRequest
 from cyreneAI.core.schema.bot import BotEvent
+
+
+logger = logging.getLogger(__name__)
 
 
 class ChannelPollingRunner:
@@ -84,20 +88,35 @@ class ChannelPollingRunner:
             await self._save_offset_for(events)
             return 0
 
-        await self._processor.process(
-            ApplicationChannelEventsRequest(
-                events=pending_events,
-                provider_id=self._provider_id,
-                model=self._model,
-                metadata={
-                    **self._metadata,
-                    "polling_channel_id": self._channel_id,
-                },
-            )
-        )
-        await self._mark_events_processed(pending_events)
+        processed_count = 0
+        attempted_events: list[BotEvent] = []
+        for event in pending_events:
+            attempted_events.append(event)
+            try:
+                await self._processor.process(
+                    ApplicationChannelEventsRequest(
+                        events=[event],
+                        provider_id=self._provider_id,
+                        model=self._model,
+                        metadata={
+                            **self._metadata,
+                            "polling_channel_id": self._channel_id,
+                        },
+                    )
+                )
+                processed_count += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Polling event processing failed; advancing offset to avoid a stuck update: channel_id=%s event_id=%s",
+                    self._channel_id,
+                    event.event_id,
+                )
+
+        await self._mark_events_processed(attempted_events)
         await self._save_offset_for(events)
-        return len(pending_events)
+        return processed_count
 
     async def run_forever(self) -> None:
         while not self._stop_event.is_set():
@@ -106,6 +125,10 @@ class ChannelPollingRunner:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                logger.exception(
+                    "Channel polling iteration failed: channel_id=%s",
+                    self._channel_id,
+                )
                 await asyncio.sleep(self._interval_seconds)
                 continue
             await asyncio.sleep(self._interval_seconds)

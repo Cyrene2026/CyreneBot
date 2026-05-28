@@ -18,6 +18,7 @@ from cyreneAI.infra.adapters.bot_polling_states.memory import (
     InMemoryBotPollingStateStore,
 )
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
+from cyreneAI.infra.adapters.plugins.filesystem import FileSystemPluginStorage
 from cyreneAI.infra.adapters.vector_stores.memory.store import InMemoryVectorStore
 
 
@@ -189,6 +190,7 @@ async def _run_build_runtime_can_enable_memory_bot_channel() -> None:
 
     assert runtime.bot_channel_registry is not None
     assert runtime.bot_channel_registry.exists("memory")
+    assert runtime.bot_session_manager is not None
     assert isinstance(
         runtime.bot_channel_registry.get_channel("memory"),
         InMemoryBotChannel,
@@ -208,6 +210,7 @@ async def _run_build_runtime_can_enable_telegram_bot_channel() -> None:
 
     assert runtime.bot_channel_registry is not None
     assert runtime.bot_channel_registry.exists("telegram")
+    assert runtime.bot_session_manager is not None
     assert isinstance(
         runtime.bot_channel_registry.get_channel("telegram"),
         TelegramBotChannel,
@@ -261,6 +264,46 @@ async def _run_build_runtime_can_create_bot_polling_state_store(tmp_path) -> Non
 
 def test_build_cyrene_ai_runtime_can_create_bot_polling_state_store(tmp_path) -> None:
     asyncio.run(_run_build_runtime_can_create_bot_polling_state_store(tmp_path))
+
+
+async def _run_build_runtime_can_create_plugin_storage(tmp_path) -> None:
+    runtime = await build_cyrene_ai_runtime(
+        plugin_storage_path=tmp_path / "plugin_storage",
+    )
+    try:
+        assert runtime.plugin_storage is not None
+        namespace = runtime.plugin_storage.namespace("demo.hello")
+        await namespace.set("state", {"ready": True})
+    finally:
+        await runtime.close()
+
+    next_runtime = await build_cyrene_ai_runtime(
+        plugin_storage_path=tmp_path / "plugin_storage",
+    )
+    try:
+        assert next_runtime.plugin_storage is not None
+        namespace = next_runtime.plugin_storage.namespace("demo.hello")
+        assert await namespace.get("state") == {"ready": True}
+    finally:
+        await next_runtime.close()
+
+
+def test_build_cyrene_ai_runtime_can_create_plugin_storage(tmp_path) -> None:
+    asyncio.run(_run_build_runtime_can_create_plugin_storage(tmp_path))
+
+
+async def _run_build_runtime_rejects_duplicate_plugin_storage_config(tmp_path) -> None:
+    with pytest.raises(ValueError):
+        await build_cyrene_ai_runtime(
+            plugin_storage=FileSystemPluginStorage(tmp_path / "storage"),
+            plugin_storage_path=tmp_path / "plugin_storage",
+        )
+
+
+def test_build_cyrene_ai_runtime_rejects_duplicate_plugin_storage_config(
+    tmp_path,
+) -> None:
+    asyncio.run(_run_build_runtime_rejects_duplicate_plugin_storage_config(tmp_path))
 
 
 async def _run_build_runtime_rejects_duplicate_bot_polling_state_config(

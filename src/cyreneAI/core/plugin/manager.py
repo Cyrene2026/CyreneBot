@@ -12,6 +12,10 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandRequest,
     PluginCommandResult,
     PluginDefinition,
+    PluginEvent,
+    PluginEventDefinition,
+    PluginEventRequest,
+    PluginEventResult,
 )
 
 
@@ -34,6 +38,12 @@ class PluginManager:
         列出插件命令。
         """
         return self._registry.list_commands()
+
+    def list_events(self) -> list[PluginEventDefinition]:
+        """
+        列出插件事件订阅。
+        """
+        return self._registry.list_events()
 
     async def execute_command(
         self,
@@ -59,3 +69,35 @@ class PluginManager:
                 f"插件命令 {command.name} 执行失败",
                 cause=exc,
             ) from exc
+
+    async def dispatch_event(
+        self,
+        event: PluginEvent,
+        *,
+        metadata: dict[str, object] | None = None,
+    ) -> list[PluginEventResult]:
+        """
+        将窄事件分发给已订阅的插件。
+        """
+        results: list[PluginEventResult] = []
+        for _, event_definition, executor in self._registry.resolve_events(event):
+            try:
+                results.append(
+                    await executor.execute(
+                        PluginEventRequest(
+                            route=event_definition,
+                            event=event,
+                            metadata=dict(metadata or {}),
+                        )
+                    )
+                )
+            except PluginError:
+                raise
+            except CyreneAIError:
+                raise
+            except Exception as exc:
+                raise PluginExecutionError(
+                    f"插件事件 {event_definition.event_type} 执行失败",
+                    cause=exc,
+                ) from exc
+        return results

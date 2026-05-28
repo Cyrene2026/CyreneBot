@@ -7,7 +7,11 @@ from cyreneAI.core.schema.bot import BotEvent, BotEventType, BotCommand
 from cyreneAI.core.schema.message import ContentPartType
 
 
-def parse_bot_command(event: BotEvent) -> BotCommand:
+def parse_bot_command(
+    event: BotEvent,
+    *,
+    known_command_names: set[str] | None = None,
+) -> BotCommand:
     """
     从标准 BotEvent 中解析 /command 参数。
     """
@@ -26,7 +30,7 @@ def parse_bot_command(event: BotEvent) -> BotCommand:
     if not parts:
         raise BotInputError("COMMAND event must include command name")
 
-    name_token, *args = parts
+    name_token, args = _split_command_parts(parts, known_command_names)
     name, target = _split_command_target(name_token)
     if not name:
         raise BotInputError("COMMAND event must include command name")
@@ -59,6 +63,38 @@ def _split_command_target(name_token: str) -> tuple[str, str | None]:
     if not separator:
         return name, None
     return name, target or None
+
+
+def _split_command_parts(
+    parts: list[str],
+    known_command_names: set[str] | None,
+) -> tuple[str, list[str]]:
+    if not known_command_names:
+        name_token, *args = parts
+        return name_token, args
+
+    first_name, target = _split_command_target(parts[0])
+    normalized_names = {_normalize_command_name(name) for name in known_command_names}
+    best_size = 0
+    best_name = ""
+    for size in range(1, len(parts) + 1):
+        candidate_parts = [first_name, *parts[1:size]]
+        candidate = _normalize_command_name(" ".join(candidate_parts))
+        if candidate in normalized_names:
+            best_size = size
+            best_name = candidate
+
+    if best_size == 0:
+        name_token, *args = parts
+        return name_token, args
+
+    if target is not None:
+        best_name = f"{best_name}@{target}"
+    return best_name, parts[best_size:]
+
+
+def _normalize_command_name(value: str) -> str:
+    return " ".join(value.strip().removeprefix("/").split()).lower()
 
 
 def _event_text(event: BotEvent) -> str:

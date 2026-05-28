@@ -14,6 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
 from cyreneAI.core.schema.plugin import PluginManifest
+from cyreneAI.infra.adapters.plugins.filesystem.assets import FileSystemPluginAssets
 
 
 class FileSystemPluginLoader:
@@ -21,8 +22,14 @@ class FileSystemPluginLoader:
     文件系统插件加载器。
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        plugin_assets: FileSystemPluginAssets | None = None,
+    ) -> None:
         self._path = Path(path)
+        self._plugin_assets = plugin_assets
 
     def load(self) -> list[Any]:
         """
@@ -33,7 +40,10 @@ class FileSystemPluginLoader:
                 f"Plugin path {self._path} does not exist"
             )
 
-        return [_load_plugin_project(path) for path in _plugin_project_paths(self._path)]
+        return [
+            _load_plugin_project(path, plugin_assets=self._plugin_assets)
+            for path in _plugin_project_paths(self._path)
+        ]
 
 
 def _plugin_project_paths(path: Path) -> list[Path]:
@@ -59,8 +69,15 @@ def _plugin_project_paths(path: Path) -> list[Path]:
     ]
 
 
-def _load_plugin_project(project_path: Path) -> Any:
+def _load_plugin_project(
+    project_path: Path,
+    *,
+    plugin_assets: FileSystemPluginAssets | None,
+) -> Any:
     manifest = _load_manifest(project_path / "plugin.json")
+    if plugin_assets is not None:
+        plugin_assets.register(manifest.plugin_id, project_path / "assets")
+
     entrypoint = (project_path / manifest.entrypoint).resolve()
     if not entrypoint.is_file():
         raise PluginConfigurationError(
@@ -139,4 +156,3 @@ def _load_entrypoint_module(
 def _module_name(plugin_id: str, entrypoint: Path) -> str:
     safe_plugin_id = re.sub(r"[^a-zA-Z0-9_]", "_", plugin_id)
     return f"_cyreneai_plugin_{safe_plugin_id}_{abs(hash(str(entrypoint)))}"
-

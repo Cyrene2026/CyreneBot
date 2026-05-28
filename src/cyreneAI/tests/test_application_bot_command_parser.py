@@ -48,6 +48,29 @@ def test_parse_bot_command_supports_target_suffix() -> None:
     assert command.args == ("now",)
 
 
+def test_parse_bot_command_uses_longest_known_command_match() -> None:
+    command = parse_bot_command(
+        _command_event('/sf ban "user 1" PT1H'),
+        known_command_names={"sf", "sf ban"},
+    )
+
+    assert command.name == "sf ban"
+    assert command.target is None
+    assert command.args == ("user 1", "PT1H")
+    assert command.args_text == "user 1 PT1H"
+
+
+def test_parse_bot_command_supports_target_with_known_command_match() -> None:
+    command = parse_bot_command(
+        _command_event("/sf@CyreneBot ban user-1"),
+        known_command_names={"sf ban"},
+    )
+
+    assert command.name == "sf ban"
+    assert command.target == "CyreneBot"
+    assert command.args == ("user-1",)
+
+
 def test_parse_bot_command_rejects_non_command_text() -> None:
     with pytest.raises(BotInputError):
         parse_bot_command(_command_event("hello"))

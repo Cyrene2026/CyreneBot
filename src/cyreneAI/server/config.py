@@ -112,6 +112,18 @@ def build_plugin_paths_from_env() -> list[str]:
     ]
 
 
+def build_plugin_storage_path_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("CYRENEAI_PLUGIN_STORAGE_PATH")
+
+
+def build_plugin_task_database_path_from_env() -> str | None:
+    load_dotenv()
+
+    return _env_str("CYRENEAI_PLUGIN_TASK_DATABASE_PATH")
+
+
 def build_provider_configs_from_env() -> list[ProviderConfig]:
     load_dotenv()
 

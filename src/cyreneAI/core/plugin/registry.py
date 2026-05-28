@@ -3,7 +3,13 @@ from __future__ import annotations
 from cyreneAI.core.errors.base import ConflictError
 from cyreneAI.core.errors.plugin import PluginNotFoundError, PluginStateError
 from cyreneAI.core.plugin.plugin_protocol import PluginExecutorProtocol
-from cyreneAI.core.schema.plugin import PluginCommandDefinition, PluginDefinition
+from cyreneAI.core.plugin.plugin_protocol import PluginEventExecutorProtocol
+from cyreneAI.core.schema.plugin import (
+    PluginCommandDefinition,
+    PluginDefinition,
+    PluginEvent,
+    PluginEventDefinition,
+)
 
 
 class PluginRegistry:
@@ -14,12 +20,14 @@ class PluginRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, PluginDefinition] = {}
         self._executors: dict[str, PluginExecutorProtocol] = {}
+        self._event_executors: dict[str, PluginEventExecutorProtocol] = {}
         self._command_to_plugin: dict[str, str] = {}
 
     def register(
         self,
         definition: PluginDefinition,
         executor: PluginExecutorProtocol | None = None,
+        event_executor: PluginEventExecutorProtocol | None = None,
     ) -> None:
         """
         注册插件。
@@ -35,6 +43,8 @@ class PluginRegistry:
         self._definitions[definition.plugin_id] = definition
         if executor is not None:
             self._executors[definition.plugin_id] = executor
+        if event_executor is not None:
+            self._event_executors[definition.plugin_id] = event_executor
         for command_name in command_names:
             self._command_to_plugin[command_name] = definition.plugin_id
 
@@ -50,6 +60,7 @@ class PluginRegistry:
             self._command_to_plugin.pop(command_name, None)
         self._definitions.pop(plugin_id, None)
         self._executors.pop(plugin_id, None)
+        self._event_executors.pop(plugin_id, None)
 
     def get_definition(self, plugin_id: str) -> PluginDefinition:
         """
@@ -93,6 +104,17 @@ class PluginRegistry:
             commands.extend(command for command in definition.commands if command.enabled)
         return commands
 
+    def list_events(self) -> list[PluginEventDefinition]:
+        """
+        列出已启用插件事件订阅。
+        """
+        events: list[PluginEventDefinition] = []
+        for definition in self._definitions.values():
+            if not definition.enabled:
+                continue
+            events.extend(event for event in definition.events if event.enabled)
+        return events
+
     def resolve_command(
         self,
         command_name: str,
@@ -110,6 +132,29 @@ class PluginRegistry:
         if command is None:
             raise PluginStateError(f"该插件命令 {command_name} 状态异常")
         return definition, command, self.get_executor(plugin_id)
+
+    def resolve_events(
+        self,
+        event: PluginEvent,
+    ) -> list[tuple[PluginDefinition, PluginEventDefinition, PluginEventExecutorProtocol]]:
+        """
+        根据事件类型解析所有匹配的插件事件订阅。
+        """
+        resolved: list[
+            tuple[PluginDefinition, PluginEventDefinition, PluginEventExecutorProtocol]
+        ] = []
+        for definition in self._definitions.values():
+            if not definition.enabled:
+                continue
+            executor = self._event_executors.get(definition.plugin_id)
+            if executor is None:
+                continue
+            for event_definition in definition.events:
+                if not event_definition.enabled:
+                    continue
+                if event_definition.event_type == event.event_type:
+                    resolved.append((definition, event_definition, executor))
+        return resolved
 
     def _enabled_command_names(self, definition: PluginDefinition) -> set[str]:
         if not definition.enabled:

@@ -7,8 +7,17 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandRequest,
     PluginCommandResult,
     PluginDefinition,
+    PluginEvent,
+    PluginEventDefinition,
+    PluginEventRequest,
+    PluginEventResult,
+    PluginEventType,
     PluginManifest,
+    PluginMessageReceipt,
     PluginPermission,
+    PluginTaskDefinition,
+    PluginTaskRequest,
+    PluginTaskResult,
 )
 
 
@@ -28,6 +37,8 @@ def test_plugin_definition_defaults() -> None:
     assert definition.capabilities == []
     assert definition.permissions == []
     assert definition.commands == []
+    assert definition.tasks == []
+    assert definition.events == []
     assert definition.enabled is True
     assert definition.builtin is False
     assert definition.metadata == {}
@@ -58,6 +69,55 @@ def test_plugin_command_request_and_result_defaults() -> None:
     assert result.handled is True
     assert result.actions == []
     assert result.metadata == {}
+
+
+def test_plugin_task_definition_request_and_result_defaults() -> None:
+    task = PluginTaskDefinition(
+        name="daily",
+    )
+    request = PluginTaskRequest(task=task)
+    result = PluginTaskResult()
+
+    assert task.description == ""
+    assert task.interval_seconds is None
+    assert task.daily_at is None
+    assert task.run_on_start is False
+    assert task.enabled is True
+    assert task.metadata == {}
+    assert request.payload == {}
+    assert request.metadata == {}
+    assert result.handled is True
+    assert result.metadata == {}
+
+
+def test_plugin_event_definition_request_and_result_defaults() -> None:
+    event_definition = PluginEventDefinition(event_type=PluginEventType.MESSAGE)
+    event = PluginEvent(
+        event_id="event-1",
+        event_type=PluginEventType.MESSAGE,
+        session_id="session-1",
+        user_id="user-1",
+        text="hello",
+    )
+    request = PluginEventRequest(route=event_definition, event=event)
+    result = PluginEventResult()
+
+    assert event_definition.description == ""
+    assert event_definition.enabled is True
+    assert event_definition.metadata == {}
+    assert request.event is event
+    assert request.metadata == {}
+    assert result.handled is True
+    assert result.actions == []
+    assert result.metadata == {}
+
+
+def test_plugin_message_receipt_defaults() -> None:
+    receipt = PluginMessageReceipt(session_id="session-1")
+
+    assert receipt.session_id == "session-1"
+    assert receipt.accepted is True
+    assert receipt.metadata == {}
 
 
 def test_plugin_definition_declares_capabilities_and_commands() -> None:
@@ -91,6 +151,14 @@ def test_plugin_manifest_converts_to_definition() -> None:
         name="hello",
         description="Say hello.",
     )
+    task = PluginTaskDefinition(
+        name="daily",
+        interval_seconds=60,
+    )
+    event = PluginEventDefinition(
+        event_type=PluginEventType.MESSAGE,
+        description="Observe messages.",
+    )
     manifest = PluginManifest(
         plugin_id="thirdparty.hello",
         name="Hello",
@@ -102,8 +170,10 @@ def test_plugin_manifest_converts_to_definition() -> None:
         repository="https://example.com/repo.git",
         keywords=["demo", "hello"],
         capabilities=[PluginCapability.BOT_COMMAND],
-        permissions=[PluginPermission.CHAT],
+        permissions=[PluginPermission.CHAT, PluginPermission.MESSAGE_SEND],
         commands=[command],
+        tasks=[task],
+        events=[event],
         metadata={"source": "test"},
     )
 
@@ -118,6 +188,11 @@ def test_plugin_manifest_converts_to_definition() -> None:
     assert definition.repository == "https://example.com/repo.git"
     assert definition.keywords == ["demo", "hello"]
     assert definition.capabilities == [PluginCapability.BOT_COMMAND]
-    assert definition.permissions == [PluginPermission.CHAT]
+    assert definition.permissions == [
+        PluginPermission.CHAT,
+        PluginPermission.MESSAGE_SEND,
+    ]
     assert definition.commands == [command]
+    assert definition.tasks == [task]
+    assert definition.events == [event]
     assert definition.metadata == {"source": "test"}

@@ -122,6 +122,18 @@ class FakePollingChannel:
         self.actions.append(action)
 
 
+class FailingFirstSendPollingChannel(FakePollingChannel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.send_calls = 0
+
+    async def send(self, action: BotAction) -> None:
+        self.send_calls += 1
+        if self.send_calls == 1:
+            raise RuntimeError("telegram send failed")
+        await super().send(action)
+
+
 async def _build_runtime(
     provider: FakePollingProvider,
     channel: FakePollingChannel,
@@ -235,6 +247,46 @@ def test_channel_polling_runner_persists_offset_and_skips_processed_events() -> 
         assert await state_store.is_event_processed("telegram", "1000") is True
         assert await state_store.is_event_processed("telegram", "1001") is True
         assert [request.messages[-1].content for request in provider.requests] == [
+            _content("two"),
+        ]
+        assert [action.message.content for action in channel.actions if action.message] == [
+            _content("reply:two"),
+        ]
+
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_channel_polling_runner_advances_offset_after_poison_event() -> None:
+    async def run() -> None:
+        provider = FakePollingProvider()
+        channel = FailingFirstSendPollingChannel()
+        state_store = InMemoryBotPollingStateStore()
+        runtime = await _build_runtime(
+            provider,
+            channel,
+            polling_state_store=state_store,
+        )
+        runner = ChannelPollingRunner(
+            runtime=runtime,
+            channel_id="telegram",
+            provider_id="provider-1",
+            model="chat-model",
+            interval_seconds=0,
+            timeout_seconds=30,
+            allowed_updates=["message"],
+        )
+
+        processed = await runner.run_once()
+
+        assert processed == 1
+        assert runner.offset == 1002
+        assert await state_store.get_offset("telegram") == 1002
+        assert await state_store.is_event_processed("telegram", "1000") is True
+        assert await state_store.is_event_processed("telegram", "1001") is True
+        assert [request.messages[-1].content for request in provider.requests] == [
+            _content("one"),
             _content("two"),
         ]
         assert [action.message.content for action in channel.actions if action.message] == [

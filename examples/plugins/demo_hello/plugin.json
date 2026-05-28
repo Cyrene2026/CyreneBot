@@ -8,5 +8,5 @@
   "license": "MIT",
   "keywords": ["demo", "hello"],
   "capabilities": ["bot_command"],
-  "permissions": []
+  "permissions": ["provider_read", "assets"]
 }
