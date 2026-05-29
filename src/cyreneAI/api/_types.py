@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from typing import Any, TypeAlias
+
+from cyreneAI.core.schema.plugin import (
+    PluginCommandResult,
+    PluginEventResult,
+    PluginTaskResult,
+)
+
+
+PluginCommandHandlerResult: TypeAlias = str | PluginCommandResult
+PluginCommandGenerator: TypeAlias = Generator[
+    PluginCommandHandlerResult,
+    None,
+    Any,
+]
+PluginCommandAsyncGenerator: TypeAlias = AsyncGenerator[
+    PluginCommandHandlerResult,
+    None,
+]
+PluginCommandHandlerReturn: TypeAlias = (
+    PluginCommandHandlerResult
+    | PluginCommandGenerator
+    | PluginCommandAsyncGenerator
+    | Awaitable[PluginCommandHandlerResult]
+)
+PluginCommandHandler: TypeAlias = Callable[..., PluginCommandHandlerReturn]
+PluginTaskHandler = Callable[
+    ...,
+    PluginTaskResult | None | Awaitable[PluginTaskResult | None],
+]
+PluginEventHandler = Callable[
+    ...,
+    PluginEventResult | None | Awaitable[PluginEventResult | None],
+]

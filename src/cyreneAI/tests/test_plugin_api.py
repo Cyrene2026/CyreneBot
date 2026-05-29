@@ -8,6 +8,7 @@ from cyreneAI.core.errors.plugin import (
     PluginAuthorizationError,
     PluginConfigurationError,
     PluginExecutionError,
+    PluginInputError,
 )
 from cyreneAI.core.schema.bot import BotCommand, BotEvent, BotEventType, BotMessage
 from cyreneAI.core.schema.message import ContentPart, ContentPartType
@@ -75,6 +76,50 @@ def test_cyrene_bot_command_decorator_records_local_route() -> None:
     assert routes[0].usage == "/hello"
     assert routes[0].aliases == ["hi"]
     assert routes[0].admin_required is True
+
+
+def test_cyrene_bot_command_decorator_records_argument_schema_and_usage() -> None:
+    plugin = CyreneBot()
+
+    @plugin.command("/repeat")
+    async def repeat(word, count=1, excited: bool = False):
+        return " ".join([word] * count) + ("!" if excited else ".")
+
+    route = plugin.routes[0]
+
+    assert route.usage == "/repeat <word> [count:int=1] [excited:bool=false]"
+    assert route.metadata["arguments"] == [
+        {
+            "name": "word",
+            "type": "str",
+            "required": True,
+        },
+        {
+            "name": "count",
+            "type": "int",
+            "required": False,
+            "default": 1,
+        },
+        {
+            "name": "excited",
+            "type": "bool",
+            "required": False,
+            "default": False,
+        },
+    ]
+
+
+def test_cyrene_bot_command_decorator_preserves_explicit_usage() -> None:
+    plugin = CyreneBot()
+
+    @plugin.command("/repeat", usage="/repeat <word> [times]")
+    async def repeat(word, count=1):
+        return " ".join([word] * count)
+
+    route = plugin.routes[0]
+
+    assert route.usage == "/repeat <word> [times]"
+    assert route.metadata["arguments"][0]["name"] == "word"
 
 
 def test_cyrene_bot_can_include_router_routes() -> None:
@@ -160,6 +205,19 @@ def test_cyrene_router_can_include_child_router_tasks() -> None:
     plugin.include_router(parent)
 
     assert plugin.tasks[0].name == "proactive conversation end"
+
+
+def test_cyrene_router_prefix_rewrites_usage_with_arguments() -> None:
+    plugin = CyreneBot()
+    router = CyreneRouter(prefix="/tools")
+
+    @router.command("/repeat")
+    async def repeat(word, count=1):
+        return " ".join([word] * count)
+
+    plugin.include_router(router)
+
+    assert plugin.routes[0].usage == "/tools repeat <word> [count:int=1]"
 
 
 def test_cyrene_router_can_include_child_router_events() -> None:
@@ -334,6 +392,363 @@ def test_cyrene_bot_command_executor_accepts_sync_yielded_results() -> None:
         assert result.actions[0].message is not None
         assert result.actions[0].message.content[0].text == "hello"
         assert result.metadata == {"done": True}
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_binds_typed_command_arguments() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.typed_args",
+                name="Typed Args",
+                description="Typed args plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/add")
+        async def add(a: int, b: int, verbose: bool = False):
+            if verbose:
+                return f"{a} + {b} = {a + b}"
+            return str(a + b)
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        result = await context.executor.execute(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/add 2 3 true",
+                    name="add",
+                    args=("2", "3", "true"),
+                    args_text="2 3 true",
+                ),
+                event=_event("/add 2 3 true"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "2 + 3 = 5"
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_uses_defaults_for_typed_arguments() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.typed_defaults",
+                name="Typed Defaults",
+                description="Typed defaults plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/hello")
+        async def hello(name: str = "world"):
+            return f"Hello, {name}!"
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        result = await context.executor.execute(
+            PluginCommandRequest(
+                command=BotCommand(raw_text="/hello", name="hello"),
+                event=_event("/hello"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "Hello, world!"
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_infers_argument_types_from_defaults() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.default_inferred_args",
+                name="Default Inferred Args",
+                description="Default inferred args plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/repeat")
+        async def repeat(word="hi", count=1, excited=False):
+            suffix = "!" if excited else "."
+            return " ".join([word] * count) + suffix
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        result = await context.executor.execute(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/repeat hey 2 true",
+                    name="repeat",
+                    args=("hey", "2", "true"),
+                    args_text="hey 2 true",
+                ),
+                event=_event("/repeat hey 2 true"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "hey hey!"
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_defaults_untyped_object_defaults_to_str() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.untyped_default",
+                name="Untyped Default",
+                description="Untyped default plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/tag")
+        async def tag(value=None):
+            return f"tag:{value}"
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        result = await context.executor.execute(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/tag alpha",
+                    name="tag",
+                    args=("alpha",),
+                    args_text="alpha",
+                ),
+                event=_event("/tag alpha"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "tag:alpha"
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_rejects_bad_typed_argument() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.bad_typed_arg",
+                name="Bad Typed Arg",
+                description="Bad typed arg plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/add")
+        async def add(a: int, b: int):
+            return str(a + b)
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        with pytest.raises(PluginInputError):
+            await context.executor.execute(
+                PluginCommandRequest(
+                    command=BotCommand(
+                        raw_text="/add nope 3",
+                        name="add",
+                        args=("nope", "3"),
+                        args_text="nope 3",
+                    ),
+                    event=_event("/add nope 3"),
+                )
+            )
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_reports_missing_argument_with_usage() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.missing_arg",
+                name="Missing Arg",
+                description="Missing arg plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/hello")
+        async def hello(name):
+            return f"Hello, {name}!"
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        with pytest.raises(PluginInputError) as exc_info:
+            await context.executor.execute(
+                PluginCommandRequest(
+                    command=BotCommand(raw_text="/hello", name="hello"),
+                    event=_event("/hello"),
+                )
+            )
+
+        assert "缺少参数 name" in str(exc_info.value)
+        assert "用法: /hello <name>" in str(exc_info.value)
+
+    asyncio.run(run())
+
+
+def test_cyrene_bot_command_executor_reports_extra_argument_with_usage() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.extra_arg",
+                name="Extra Arg",
+                description="Extra arg plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
+        )
+
+        @plugin.command("/hello")
+        async def hello(name):
+            return f"Hello, {name}!"
+
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
+
+            def register_command(self, definition, executor):
+                self.executor = executor
+
+            def register_task(self, definition, executor):
+                raise AssertionError
+
+            def register_tool(self, definition, executor):
+                raise AssertionError
+
+            def register_skill(self, definition):
+                raise AssertionError
+
+        context = Context()
+        plugin.setup(context)
+        with pytest.raises(PluginInputError) as exc_info:
+            await context.executor.execute(
+                PluginCommandRequest(
+                    command=BotCommand(
+                        raw_text="/hello Cyrene extra",
+                        name="hello",
+                        args=("Cyrene", "extra"),
+                        args_text="Cyrene extra",
+                    ),
+                    event=_event("/hello Cyrene extra"),
+                )
+            )
+
+        assert "参数过多: extra" in str(exc_info.value)
+        assert "用法: /hello <name>" in str(exc_info.value)
 
     asyncio.run(run())
 
@@ -749,36 +1164,53 @@ def test_cyrene_bot_command_executor_rejects_chat_dependency_name() -> None:
     asyncio.run(run())
 
 
-def test_cyrene_bot_command_executor_rejects_uninjectable_required_parameter() -> None:
-    plugin = CyreneBot(
-        PluginManifest(
-            plugin_id="demo.bad_signature",
-            name="Bad Signature",
-            description="Bad signature plugin.",
-            entrypoint="main.py",
-            capabilities=["bot_command"],
+def test_cyrene_bot_command_executor_binds_untyped_required_arguments_as_text() -> None:
+    async def run() -> None:
+        plugin = CyreneBot(
+            PluginManifest(
+                plugin_id="demo.untyped_required",
+                name="Untyped Required",
+                description="Untyped required plugin.",
+                entrypoint="main.py",
+                capabilities=["bot_command"],
+            )
         )
-    )
 
-    @plugin.command("/bad")
-    async def bad(request, ctx, extra):
-        return PluginCommandResult(metadata={"extra": extra})
+        @plugin.command("/hello")
+        async def hello(name):
+            return f"Hello, {name}!"
 
-    class Context:
-        runtime = object()
-        manifest = plugin.manifest
+        class Context:
+            runtime = object()
+            manifest = plugin.manifest
 
-        def register_command(self, definition, executor):
-            self.executor = executor
+            def register_command(self, definition, executor):
+                self.executor = executor
 
-        def register_task(self, definition, executor):
-            raise AssertionError
+            def register_task(self, definition, executor):
+                raise AssertionError
 
-        def register_tool(self, definition, executor):
-            raise AssertionError
+            def register_tool(self, definition, executor):
+                raise AssertionError
 
-        def register_skill(self, definition):
-            raise AssertionError
+            def register_skill(self):
+                raise AssertionError
 
-    with pytest.raises(PluginConfigurationError):
-        plugin.setup(Context())
+        context = Context()
+        plugin.setup(context)
+        result = await context.executor.execute(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/hello Cyrene",
+                    name="hello",
+                    args=("Cyrene",),
+                    args_text="Cyrene",
+                ),
+                event=_event("/hello Cyrene"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "Hello, Cyrene!"
+
+    asyncio.run(run())

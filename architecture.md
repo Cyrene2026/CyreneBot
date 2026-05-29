@@ -2,7 +2,7 @@
 
 CyreneBot 的架构目标是把稳定契约、外部适配和应用编排分开。新增业务策略时优先进入 `application`；新增外部系统实现时进入 `infra/adapters`；只有稳定协议和 schema 才进入 `core`。
 
-当前 Python 包名仍为 `cyreneAI`，这是兼容已有导入路径的过渡安排。Bot framework 的新增内核能力应优先以 channel event、bot session 和 bot action 为稳定抽象。
+当前 Python 包名为 `cyreneAI`。Bot framework 的新增内核能力应优先以 channel event、bot session 和 bot action 为稳定抽象；插件开发者面向 `cyreneAI.api` 这个稳定 facade 编写插件，不直接依赖内部实现模块。
 
 ## 分层原则
 
@@ -18,6 +18,9 @@ infra/adapters
 
 adapters
   公共适配层：面向使用方的轻量 adapter 和稳定导出。
+
+api
+  插件开发公共 API：导出 CyreneBot、CyreneRouter、Depends、回复 helper 和本地测试工具。
 
 infra/bootstrap
   装配层：注册 provider info 和 adapter builder。
@@ -53,6 +56,9 @@ infra/bootstrap
 application
   -> core
 
+api
+  -> core
+
 cyreneAI.bootstrap
   -> core
   -> application
@@ -64,9 +70,11 @@ server
   -> server
 ```
 
-实际代码里体现为：`core` 不知道 `infra`、`application` 和 `server`；`infra` 不反向依赖 `application` 或 `server`；`application` 只面向 `core` 的 schema、protocol 和 manager 编排业务流程；默认总装只落在 `cyreneAI.bootstrap`。
+实际代码里体现为：`core` 不知道 `infra`、`application` 和 `server`；`infra` 不反向依赖 `application` 或 `server`；`application` 只面向 `core` 的 schema、protocol 和 manager 编排业务流程；`cyreneAI.api` 只承载插件作者可见的公共开发面；默认总装只落在 `cyreneAI.bootstrap`。
 
 `cyreneAI.adapters` 是面向使用方的公共适配层。它可以放本地文件加载、轻量 factory、稳定 adapter 导出；不允许放 provider 的 `builder.py`、`instance.py`、`mapper.py`、`errors.py` 这类内部实现文件，也不放 provider 实现目录。provider 仍通过 `provider_catalog`、`infra/adapters/providers` 和 `infra/bootstrap/registrations` 治理。
+
+`cyreneAI.api` 是面向插件开发者的 Python API。它负责让插件以普通 Python 代码声明命令、任务、事件、依赖和本地测试；命令 handler 可以用普通函数参数接收命令参数，未标注类型且无默认值的业务参数按文本解析，未标注类型但有默认值的参数会按默认值推断类型，`str`、`int`、`float`、`bool` 注解可以显式控制解析类型，也可以用 `Depends(...)` 声明宿主能力。命令函数签名会生成 usage 和 `metadata["arguments"]` 参数契约，供测试、管理接口和后续文档使用。`api/plugin.py` 只保留兼容 facade，内部实现按依赖、参数、回复、执行器、路由和类型别名拆到私有模块。`cyreneAI.api` 不负责启动 runtime、不负责装配 infra、不负责 HTTP 通信。HTTP 对外通信仍属于 `server`。
 
 ## 真实运行架构
 
@@ -86,7 +94,7 @@ flowchart TB
 
   subgraph PUBLIC["公共入口"]
     public_adapters["cyreneAI.adapters\n轻量 loader / factory / facade"]
-    plugin_api["cyreneAI.plugin_api\n插件注册 API"]
+    public_api["cyreneAI.api\n插件开发 API / facade"]
     server_api["cyreneAI.server\nFastAPI routes / app"]
     root["cyreneAI.bootstrap\n默认 composition root"]
   end
@@ -128,15 +136,15 @@ flowchart TB
   app_user --> public_adapters
   app_user --> root
   http_user --> server_api
-  plugin_user --> plugin_api
+  plugin_user --> public_api
 
   server_api --> root
   server_api --> runtime
   public_adapters --> schemas
   public_adapters --> vector_adapters
   public_adapters --> skill_adapters
-  plugin_api --> schemas
-  plugin_api --> plugin_core
+  public_api --> schemas
+  public_api --> plugin_core
 
   root --> app_boot
   root --> provider_regs
@@ -193,7 +201,7 @@ flowchart TB
   classDef user fill:#f7f7f7,stroke:#777,color:#111;
 
   class app_user,http_user,plugin_user user;
-  class public_adapters,plugin_api,server_api,root public;
+  class public_adapters,public_api,server_api,root public;
   class app_boot,runtime,app_chat,app_generation,app_knowledge,app_bot,app_plugins app;
   class schemas,provider_core,context_core,tool_core,skill_core,vector_core,bot_core,plugin_core,errors core;
   class catalog,provider_regs,provider_adapters,channel_adapters,vector_adapters,skill_adapters,plugin_adapters,tool_adapters,database infra;
@@ -427,7 +435,7 @@ application 不定义公开 dataclass DTO，明确白名单除外
 application 顶层目录按用例分组
 ```
 
-同时还有模块级边界测试守住 `core/context`、`core/skill`、`core/tool`、`core/vector` 等子域不 import infra 或外部 SDK；公共 adapter facade 测试守住 `cyreneAI.adapters` 不泄露 application、infra bootstrap 或 provider catalog。
+同时还有模块级边界测试守住 `core/context`、`core/skill`、`core/tool`、`core/vector` 等子域不 import infra 或外部 SDK；公共 adapter facade 测试守住 `cyreneAI.adapters` 不泄露 application、infra bootstrap 或 provider catalog；公共插件 API facade 测试守住 `cyreneAI.api` 作为插件开发入口，正式示例和测试都通过 `from cyreneAI.api import ...` 使用插件 DSL；本地测试 harness 由 `tests/test_api_testing.py` 覆盖，确保插件命令、事件和任务不用启动 server 或完整 runtime 也能被 pytest 驱动。
 
 当前验收命令：
 
@@ -440,7 +448,7 @@ uv run pytest src\cyreneAI\tests
 
 ```text
 compileall 通过
-467 passed, 8 skipped
+503 passed, 7 skipped
 ```
 
 ## 扩展落点
@@ -487,6 +495,14 @@ tests/test_application_*.py
 core/schema/
 core/*/*_protocol.py
 tests
+```
+
+新增插件开发 API：
+
+```text
+api/
+tests/test_public_api_facade.py
+tests/test_api_testing.py
 ```
 
 ## 验证约定

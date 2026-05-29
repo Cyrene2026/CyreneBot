@@ -11,6 +11,12 @@ from cyreneAI.api.plugin import (
     PluginCommandHandlerReturn,
     text,
 )
+from cyreneAI.api.testing import (
+    PluginTestClient,
+    PluginTestCommandResult,
+    PluginTestEventResult,
+    PluginTestTaskResult,
+)
 
 __all__ = [
     "CyreneBot",
@@ -21,5 +27,9 @@ __all__ = [
     "PluginCommandHandler",
     "PluginCommandHandlerResult",
     "PluginCommandHandlerReturn",
+    "PluginTestClient",
+    "PluginTestCommandResult",
+    "PluginTestEventResult",
+    "PluginTestTaskResult",
     "text",
 ]
