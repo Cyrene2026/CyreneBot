@@ -18,6 +18,7 @@ dependencies = [
     "fastapi>=0.136.3",
     "uvicorn[standard]>=0.48.0",
     "python-multipart>=0.0.20",
+    "pyright",
 ]
 
 [build-system]
@@ -29,3 +30,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/cyreneAI/tests"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__", "tests/legacy"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingImports = "error"
+reportUnknownVariableType = "warning"
+reportMissingTypeStubs = "warning"

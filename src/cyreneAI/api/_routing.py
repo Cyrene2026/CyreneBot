@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from inspect import signature
-from typing import Any
+from typing import Any, cast, overload
 
 from cyreneAI.api._arguments import (
     _command_arguments_metadata,
@@ -14,11 +14,13 @@ from cyreneAI.api._arguments import (
 from cyreneAI.api._executors import (
     _CommandHandlerExecutor,
     _EventHandlerExecutor,
+    _MiddlewareHandlerExecutor,
     _TaskHandlerExecutor,
 )
 from cyreneAI.api._types import (
     PluginCommandHandler,
     PluginEventHandler,
+    PluginMiddlewareHandler,
     PluginTaskHandler,
 )
 from cyreneAI.core.errors.plugin import PluginConfigurationError
@@ -28,13 +30,24 @@ from cyreneAI.core.schema.plugin import (
     PluginEventDefinition,
     PluginEventType,
     PluginManifest,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareType,
     PluginTaskDefinition,
 )
 
 
 class CyreneBot:
     """
-    第三方 bot 插件根 router。
+    这里为插件根 router。
+    插件命令、任务、事件等都挂载在该 router 上。
+    用法：
+    ```python
+    from cyreneAI.api import CyreneBot
+    bot = CyreneBot()
+    @bot.command("/hello")
+    def hello(name: str = "world"):
+        return f"Hello, {name}!"
+    ```
     """
 
     def __init__(self, manifest: PluginManifest | None = None) -> None:
@@ -59,6 +72,10 @@ class CyreneBot:
     def events(self) -> tuple[PluginEventDefinition, ...]:
         return self._router.events
 
+    @property
+    def middlewares(self) -> tuple[PluginMiddlewareDefinition, ...]:
+        return self._router.middlewares
+
     def configure(self, manifest: PluginManifest) -> "CyreneBot":
         """
         注入 plugin.json 清单。
@@ -66,23 +83,121 @@ class CyreneBot:
         self._manifest = manifest
         return self
 
-    def command(self, *args: Any, **kwargs: Any):
+    @overload
+    def command(
+        self,
+        path: PluginCommandHandler,
+        *,
+        description: str | None = None,
+        usage: str | None = None,
+        aliases: list[str] | None = None,
+        admin_required: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginCommandHandler: ...
+
+    @overload
+    def command(
+        self,
+        path: str | None = None,
+        *,
+        description: str | None = None,
+        usage: str | None = None,
+        aliases: list[str] | None = None,
+        admin_required: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginCommandHandler], PluginCommandHandler]: ...
+
+    def command(self, *args: Any, **kwargs: Any) -> Any:
         """
         注册 bot 命令 handler。
         """
-        return self._router.command(*args, **kwargs)
+        return cast(Any, self._router.command(*args, **kwargs))
 
-    def task(self, *args: Any, **kwargs: Any):
+    @overload
+    def task(
+        self,
+        name: PluginTaskHandler,
+        *,
+        description: str | None = None,
+        interval_seconds: float | None = None,
+        daily_at: str | None = None,
+        run_on_start: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginTaskHandler: ...
+
+    @overload
+    def task(
+        self,
+        name: str | None = None,
+        *,
+        description: str | None = None,
+        interval_seconds: float | None = None,
+        daily_at: str | None = None,
+        run_on_start: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginTaskHandler], PluginTaskHandler]: ...
+
+    def task(self, *args: Any, **kwargs: Any) -> Any:
         """
         注册受管后台任务 handler。
         """
-        return self._router.task(*args, **kwargs)
+        return cast(Any, self._router.task(*args, **kwargs))
 
-    def event(self, *args: Any, **kwargs: Any):
+    @overload
+    def event(
+        self,
+        event_type: PluginEventHandler,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginEventHandler: ...
+
+    @overload
+    def event(
+        self,
+        event_type: str | PluginEventType | None = None,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginEventHandler], PluginEventHandler]: ...
+
+    def event(self, *args: Any, **kwargs: Any) -> Any:
         """
         注册插件事件 handler。
         """
-        return self._router.event(*args, **kwargs)
+        return cast(Any, self._router.event(*args, **kwargs))
+
+    @overload
+    def middleware(
+        self,
+        middleware_type: PluginMiddlewareHandler,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginMiddlewareHandler: ...
+
+    @overload
+    def middleware(
+        self,
+        middleware_type: str | PluginMiddlewareType = "llm",
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginMiddlewareHandler], PluginMiddlewareHandler]: ...
+
+    def middleware(self, *args: Any, **kwargs: Any) -> Any:
+        """
+        注册受控中间件 handler。
+        """
+        return cast(Any, self._router.middleware(*args, **kwargs))
 
     def include_router(self, router: "CyreneRouter") -> None:
         """
@@ -113,6 +228,11 @@ class CyreneBot:
                 route.definition,
                 _EventHandlerExecutor(route.handler, context.runtime),
             )
+        for route in self._router.middleware_routes:
+            context.register_middleware(
+                route.definition,
+                _MiddlewareHandlerExecutor(route.handler, context.runtime),
+            )
 
 
 class CyreneRouter:
@@ -135,6 +255,7 @@ class CyreneRouter:
         self._routes: list[_CommandRoute] = []
         self._tasks: list[_TaskRoute] = []
         self._events: list[_EventRoute] = []
+        self._middlewares: list[_MiddlewareRoute] = []
 
     @property
     def routes(self) -> tuple[PluginCommandDefinition, ...]:
@@ -160,6 +281,40 @@ class CyreneRouter:
     def event_routes(self) -> tuple["_EventRoute", ...]:
         return tuple(self._events)
 
+    @property
+    def middlewares(self) -> tuple[PluginMiddlewareDefinition, ...]:
+        return tuple(route.definition for route in self._middlewares)
+
+    @property
+    def middleware_routes(self) -> tuple["_MiddlewareRoute", ...]:
+        return tuple(self._middlewares)
+
+    @overload
+    def command(
+        self,
+        path: PluginCommandHandler,
+        *,
+        description: str | None = None,
+        usage: str | None = None,
+        aliases: list[str] | None = None,
+        admin_required: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginCommandHandler: ...
+
+    @overload
+    def command(
+        self,
+        path: str | None = None,
+        *,
+        description: str | None = None,
+        usage: str | None = None,
+        aliases: list[str] | None = None,
+        admin_required: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginCommandHandler], PluginCommandHandler]: ...
+
     def command(
         self,
         path: str | PluginCommandHandler | None = None,
@@ -170,7 +325,7 @@ class CyreneRouter:
         admin_required: bool = False,
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
-    ) -> Callable[[PluginCommandHandler], PluginCommandHandler]:
+    ) -> PluginCommandHandler | Callable[[PluginCommandHandler], PluginCommandHandler]:
         """
         注册 bot 命令 handler。
         """
@@ -212,7 +367,8 @@ class CyreneRouter:
             definition = PluginCommandDefinition(
                 name=command_name,
                 description=command_description,
-                usage=usage or _usage_from_arguments(
+                usage=usage
+                or _usage_from_arguments(
                     command_name,
                     command_arguments,
                 ),
@@ -236,6 +392,32 @@ class CyreneRouter:
 
         return decorator
 
+    @overload
+    def task(
+        self,
+        name: PluginTaskHandler,
+        *,
+        description: str | None = None,
+        interval_seconds: float | None = None,
+        daily_at: str | None = None,
+        run_on_start: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginTaskHandler: ...
+
+    @overload
+    def task(
+        self,
+        name: str | None = None,
+        *,
+        description: str | None = None,
+        interval_seconds: float | None = None,
+        daily_at: str | None = None,
+        run_on_start: bool = False,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginTaskHandler], PluginTaskHandler]: ...
+
     def task(
         self,
         name: str | PluginTaskHandler | None = None,
@@ -246,7 +428,7 @@ class CyreneRouter:
         run_on_start: bool = False,
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
-    ) -> Callable[[PluginTaskHandler], PluginTaskHandler]:
+    ) -> PluginTaskHandler | Callable[[PluginTaskHandler], PluginTaskHandler]:
         """
         注册受管后台任务 handler。
         """
@@ -293,6 +475,26 @@ class CyreneRouter:
 
         return decorator
 
+    @overload
+    def event(
+        self,
+        event_type: PluginEventHandler,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginEventHandler: ...
+
+    @overload
+    def event(
+        self,
+        event_type: str | PluginEventType | None = None,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginEventHandler], PluginEventHandler]: ...
+
     def event(
         self,
         event_type: str | PluginEventType | PluginEventHandler | None = None,
@@ -300,7 +502,7 @@ class CyreneRouter:
         description: str | None = None,
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
-    ) -> Callable[[PluginEventHandler], PluginEventHandler]:
+    ) -> PluginEventHandler | Callable[[PluginEventHandler], PluginEventHandler]:
         """
         注册插件事件 handler。
         """
@@ -333,6 +535,67 @@ class CyreneRouter:
                 metadata=event_metadata,
             )
             self._events.append(_EventRoute(definition, handler))
+            return handler
+
+        return decorator
+
+    @overload
+    def middleware(
+        self,
+        middleware_type: PluginMiddlewareHandler,
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginMiddlewareHandler: ...
+
+    @overload
+    def middleware(
+        self,
+        middleware_type: str | PluginMiddlewareType = "llm",
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> Callable[[PluginMiddlewareHandler], PluginMiddlewareHandler]: ...
+
+    def middleware(
+        self,
+        middleware_type: str | PluginMiddlewareType | PluginMiddlewareHandler = "llm",
+        *,
+        description: str | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> PluginMiddlewareHandler | Callable[[PluginMiddlewareHandler], PluginMiddlewareHandler]:
+        """
+        注册受控中间件 handler。
+        """
+        if callable(middleware_type):
+            return self.middleware(
+                "llm",
+                description=description,
+                enabled=enabled,
+                metadata=metadata,
+            )(middleware_type)
+
+        normalized_middleware_type = _normalize_middleware_type(middleware_type)
+
+        def decorator(handler: PluginMiddlewareHandler) -> PluginMiddlewareHandler:
+            middleware_description = description
+            if middleware_description is None:
+                middleware_description = _handler_description(handler)
+
+            middleware_metadata = {
+                **self._metadata,
+                **(metadata or {}),
+            }
+            definition = PluginMiddlewareDefinition(
+                middleware_type=normalized_middleware_type,
+                description=middleware_description,
+                enabled=self._enabled and enabled,
+                metadata=middleware_metadata,
+            )
+            self._middlewares.append(_MiddlewareRoute(definition, handler))
             return handler
 
         return decorator
@@ -377,6 +640,17 @@ class CyreneRouter:
                     route.handler,
                 )
             )
+        for route in router.middleware_routes:
+            self._middlewares.append(
+                _MiddlewareRoute(
+                    _merge_router_middleware_definition(
+                        route.definition,
+                        enabled=self._enabled,
+                        metadata=self._metadata,
+                    ),
+                    route.handler,
+                )
+            )
 
 
 class _CommandRoute:
@@ -409,16 +683,22 @@ class _EventRoute:
         self.handler = handler
 
 
+class _MiddlewareRoute:
+    def __init__(
+        self,
+        definition: PluginMiddlewareDefinition,
+        handler: PluginMiddlewareHandler,
+    ) -> None:
+        self.definition = definition
+        self.handler = handler
+
+
 def _normalize_command_name(value: str) -> str:
     return _normalize_command_path(value)
 
 
 def _join_command_paths(prefix: str, path: str) -> str:
-    parts = [
-        part
-        for part in (prefix, _normalize_command_path(path))
-        if part
-    ]
+    parts = [part for part in (prefix, _normalize_command_path(path)) if part]
     return " ".join(parts)
 
 
@@ -438,6 +718,15 @@ def _normalize_event_type(value: str | PluginEventType) -> PluginEventType:
         return PluginEventType(str(value).strip().lower())
     except ValueError as exc:
         raise PluginConfigurationError(f"未知插件事件类型: {value}") from exc
+
+
+def _normalize_middleware_type(
+    value: str | PluginMiddlewareType,
+) -> PluginMiddlewareType:
+    try:
+        return PluginMiddlewareType(str(value).strip().lower())
+    except ValueError as exc:
+        raise PluginConfigurationError(f"未知插件中间件类型: {value}") from exc
 
 
 def _merge_router_definition(
@@ -504,6 +793,20 @@ def _merge_router_event_definition(
     enabled: bool,
     metadata: dict[str, Any],
 ) -> PluginEventDefinition:
+    return definition.model_copy(
+        update={
+            "enabled": enabled and definition.enabled,
+            "metadata": {**metadata, **definition.metadata},
+        }
+    )
+
+
+def _merge_router_middleware_definition(
+    definition: PluginMiddlewareDefinition,
+    *,
+    enabled: bool,
+    metadata: dict[str, Any],
+) -> PluginMiddlewareDefinition:
     return definition.model_copy(
         update={
             "enabled": enabled and definition.enabled,

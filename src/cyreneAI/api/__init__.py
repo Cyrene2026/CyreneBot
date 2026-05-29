@@ -13,6 +13,8 @@ from cyreneAI.api.plugin import (
     PluginCommandHandler,
     PluginCommandHandlerResult,
     PluginCommandHandlerReturn,
+    PluginMiddlewareHandler,
+    PluginMiddlewareNext,
     Rest,
     text,
 )
@@ -36,6 +38,8 @@ __all__ = [
     "PluginCommandHandler",
     "PluginCommandHandlerResult",
     "PluginCommandHandlerReturn",
+    "PluginMiddlewareHandler",
+    "PluginMiddlewareNext",
     "PluginTestClient",
     "PluginTestCommandResult",
     "PluginTestEventResult",

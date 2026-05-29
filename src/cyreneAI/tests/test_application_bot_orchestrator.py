@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 
 import pytest
@@ -24,6 +25,7 @@ from cyreneAI.core.schema.bot import (
 )
 from cyreneAI.core.context.builder import ContextWindowBuilder
 from cyreneAI.core.errors.bot import BotInputError, BotUnsupportedEventError
+from cyreneAI.core.errors.plugin import PluginInputError
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
@@ -120,6 +122,16 @@ class FakePluginExecutor:
                 )
             ]
         )
+
+
+class InputErrorPluginExecutor:
+    async def execute(self, request: PluginCommandRequest) -> PluginCommandResult:
+        raise PluginInputError("插件命令 search 缺少参数 query；用法: /search <query>")
+
+
+class FailingPluginExecutor:
+    async def execute(self, request: PluginCommandRequest) -> PluginCommandResult:
+        raise RuntimeError("command failed")
 
 
 class FakePluginEventExecutor:
@@ -506,6 +518,93 @@ def test_bot_orchestrator_rejects_status_command_without_admin() -> None:
         assert result.actions[0].message.content == _content(
             "Command /status requires admin permission."
         )
+
+    asyncio.run(run())
+
+
+def test_bot_orchestrator_returns_plugin_input_error_as_command_reply() -> None:
+    async def run() -> None:
+        provider = FakeChatProvider(
+            ChatResponse(
+                provider_id="provider-1",
+                message=_chat_message(MessageRole.ASSISTANT, "unused"),
+            )
+        )
+        runtime = await _build_runtime(provider)
+        assert runtime.plugin_manager is not None
+        registry = runtime.plugin_manager._registry
+        registry.register(
+            PluginDefinition(
+                plugin_id="thirdparty.search",
+                name="Search",
+                description="Search plugin.",
+                commands=[
+                    PluginCommandDefinition(
+                        name="search",
+                        description="Search.",
+                    )
+                ],
+            ),
+            InputErrorPluginExecutor(),
+        )
+
+        result = await BotOrchestrator(runtime).handle(
+            ApplicationBotRequest(
+                event=_bot_event("/search"),
+                provider_id="provider-1",
+                model="fake-model",
+            )
+        )
+
+        assert provider.requests == []
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content == _content(
+            "插件命令 search 缺少参数 query；用法: /search <query>"
+        )
+        assert result.metadata["command"] == "search"
+
+    asyncio.run(run())
+
+
+def test_bot_orchestrator_returns_safe_reply_when_plugin_command_fails(caplog) -> None:
+    async def run() -> None:
+        provider = FakeChatProvider(
+            ChatResponse(
+                provider_id="provider-1",
+                message=_chat_message(MessageRole.ASSISTANT, "unused"),
+            )
+        )
+        runtime = await _build_runtime(provider)
+        assert runtime.plugin_manager is not None
+        registry = runtime.plugin_manager._registry
+        registry.register(
+            PluginDefinition(
+                plugin_id="thirdparty.broken",
+                name="Broken",
+                description="Broken plugin.",
+                commands=[
+                    PluginCommandDefinition(
+                        name="broken",
+                        description="Breaks.",
+                    )
+                ],
+            ),
+            FailingPluginExecutor(),
+        )
+
+        with caplog.at_level(logging.ERROR, logger="cyreneAI.application.bot.orchestrator"):
+            result = await BotOrchestrator(runtime).handle(
+                ApplicationBotRequest(
+                    event=_bot_event("/broken"),
+                    provider_id="provider-1",
+                    model="fake-model",
+                )
+            )
+
+        assert provider.requests == []
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content == _content("Command /broken failed.")
+        assert "Plugin command execution failed: command=broken" in caplog.text
 
     asyncio.run(run())
 

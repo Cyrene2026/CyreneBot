@@ -17,6 +17,8 @@ from cyreneAI.api import (
     Rest,
 )
 from cyreneAI.core.errors.plugin import PluginAuthorizationError
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.message import ContentPart, ContentPartType, Message, MessageRole
 from cyreneAI.core.schema.plugin import PluginEventResult, PluginTaskResult
 
 
@@ -232,6 +234,53 @@ def test_plugin_test_client_injects_dependency_overrides() -> None:
     asyncio.run(run())
 
 
+def test_plugin_test_client_passes_command_metadata_and_defaults_to_llm() -> None:
+    async def run() -> None:
+        plugin = CyreneBot()
+
+        class FakeLLM:
+            def __init__(self) -> None:
+                self.requests = []
+
+            def for_request(self, request):
+                self.requests.append(request)
+                return self
+
+            async def chat(self, prompt: str) -> str:
+                return f"fake: {prompt}"
+
+        fake_llm = FakeLLM()
+
+        @plugin.command("/ask")
+        async def ask(request, llm=Depends("llm")):
+            return (
+                f"{request.event.session_id}:"
+                f"{request.metadata['provider_id']}:"
+                f"{request.metadata['model']}:"
+                f"{request.metadata['source']}:"
+                f"{await llm.chat(request.command.args_text)}"
+            )
+
+        client = PluginTestClient(plugin, dependencies={"llm": fake_llm})
+        result = await client.command(
+            "/ask hello",
+            session_id="session-42",
+            provider_id="provider-1",
+            model="model-a",
+            metadata={"source": "pytest"},
+        )
+
+        assert result.texts == ["session-42:provider-1:model-a:pytest:fake: hello"]
+        assert fake_llm.requests[0].metadata == {
+            "source": "pytest",
+            "provider_id": "provider-1",
+            "model": "model-a",
+            "session_id": "session-42",
+        }
+
+    asyncio.run(run())
+
+
 def test_plugin_test_client_uses_longest_command_match_and_aliases() -> None:
     async def run() -> None:
         plugin = CyreneBot()
@@ -372,5 +421,160 @@ def test_plugin_test_client_runs_inferred_task_name() -> None:
         result = await client.task("cleanup cache")
 
         assert result.metadata == {"task": "cleanup cache"}
+
+    asyncio.run(run())
+
+
+def test_plugin_test_client_executes_llm_middleware_chain() -> None:
+    async def run() -> None:
+        plugin = CyreneBot()
+
+        @plugin.middleware("llm")
+        async def trace(request, next):
+            updated = request.model_copy(
+                update={
+                    "chat_request": request.chat_request.model_copy(
+                        update={"metadata": {"trace": "plugin"}}
+                    )
+                }
+            )
+            return await next(updated)
+
+        async def final(chat_request: ChatRequest) -> ChatResponse:
+            return ChatResponse(
+                provider_id=chat_request.provider_id,
+                model=chat_request.model,
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    content=[
+                        ContentPart(
+                            type=ContentPartType.TEXT,
+                            text=str(chat_request.metadata["trace"]),
+                        )
+                    ],
+                ),
+            )
+
+        client = PluginTestClient(plugin)
+        response = await client.llm_middleware(
+            ChatRequest(
+                provider_id="provider-1",
+                model="model",
+                messages=[Message(role=MessageRole.USER, content=[])],
+            ),
+            final,
+        )
+
+        assert response.message is not None
+        assert response.message.content[0].text == "plugin"
+
+    asyncio.run(run())
+
+
+def test_plugin_test_client_calls_next_when_no_llm_middlewares() -> None:
+    async def run() -> None:
+        plugin = CyreneBot()
+        client = PluginTestClient(plugin)
+
+        async def final(chat_request: ChatRequest) -> ChatResponse:
+            return ChatResponse(
+                provider_id=chat_request.provider_id,
+                model=chat_request.model,
+                raw={"metadata": dict(chat_request.metadata)},
+            )
+
+        response = await client.llm_middleware(
+            "hello",
+            final,
+            provider_id="provider-1",
+            model="model",
+            session_id="session-1",
+            metadata={"source": "pytest"},
+        )
+
+        assert response.provider_id == "provider-1"
+        assert response.model == "model"
+        assert response.raw == {
+            "metadata": {
+                "source": "pytest",
+                "session_id": "session-1",
+            }
+        }
+
+    asyncio.run(run())
+
+
+def test_plugin_test_client_combines_command_event_task_and_middleware() -> None:
+    async def run() -> None:
+        plugin = CyreneBot()
+
+        @plugin.command("/remember")
+        async def remember(value: str, storage=Depends("storage")):
+            await storage.set("value", value)
+            return value
+
+        @plugin.event
+        async def on_message(event, storage=Depends("storage")):
+            await storage.set("event", event.text)
+            return PluginEventResult(metadata={"session_id": event.session_id})
+
+        @plugin.task
+        async def flush_state(request, storage=Depends("storage")):
+            return PluginTaskResult(
+                metadata={
+                    "value": await storage.get("value"),
+                    "event": await storage.get("event"),
+                    "payload": request.payload,
+                    "metadata": request.metadata,
+                }
+            )
+
+        @plugin.middleware("llm")
+        async def trace(request, next, storage=Depends("storage")):
+            await storage.set("middleware_session", request.chat_request.metadata["session_id"])
+            return await next(request)
+
+        client = PluginTestClient(plugin)
+        command_result = await client.command(
+            "/remember Cyrene",
+            provider_id="provider-1",
+            model="model",
+            metadata={"source": "command"},
+        )
+        event_result = await client.event(
+            "message",
+            text="hello",
+            session_id="session-event",
+            provider_id="provider-1",
+            model="model",
+        )
+        task_result = await client.task(
+            "flush state",
+            payload={"target": "cache"},
+            session_id="session-task",
+            metadata={"source": "task"},
+        )
+
+        async def final(chat_request: ChatRequest) -> ChatResponse:
+            return ChatResponse(provider_id=chat_request.provider_id)
+
+        await client.llm_middleware(
+            "hello",
+            final,
+            session_id="session-middleware",
+        )
+
+        assert command_result.texts == ["Cyrene"]
+        assert event_result.metadata == [{"session_id": "session-event"}]
+        assert task_result.metadata == {
+            "value": "Cyrene",
+            "event": "hello",
+            "payload": {"target": "cache"},
+            "metadata": {
+                "source": "task",
+                "session_id": "session-task",
+            },
+        }
+        assert await client.storage.get("middleware_session") == "session-middleware"
 
     asyncio.run(run())

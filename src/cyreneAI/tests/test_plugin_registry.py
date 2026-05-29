@@ -16,9 +16,13 @@ from cyreneAI.core.schema.plugin import (
     PluginEventResult,
     PluginEventType,
     PluginLifecycleStatus,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginStatusReport,
     PluginTaskDefinition,
 )
+from cyreneAI.core.schema.chat import ChatResponse
 
 
 class _FakePluginExecutor:
@@ -31,6 +35,11 @@ class _FakePluginEventExecutor:
         return PluginEventResult(metadata={"event": request.event.event_type})
 
 
+class _FakePluginMiddlewareExecutor:
+    async def execute(self, request: PluginMiddlewareRequest, next_call) -> ChatResponse:
+        return await next_call(request)
+
+
 def _definition(
     plugin_id: str = "builtin.help",
     *,
@@ -40,6 +49,7 @@ def _definition(
     command_enabled: bool = True,
     events: list[PluginEventDefinition] | None = None,
     tasks: list[PluginTaskDefinition] | None = None,
+    middlewares: list[PluginMiddlewareDefinition] | None = None,
 ) -> PluginDefinition:
     return PluginDefinition(
         plugin_id=plugin_id,
@@ -56,6 +66,7 @@ def _definition(
         ],
         events=events or [],
         tasks=tasks or [],
+        middlewares=middlewares or [],
     )
 
 
@@ -208,3 +219,111 @@ def test_plugin_registry_lists_tasks_and_records_status() -> None:
     assert registry.list_tasks() == definition.tasks
     assert registry.list_statuses()[0].status == PluginLifecycleStatus.FAILED
     assert registry.list_statuses()[0].reason == "setup_failed"
+
+
+def test_plugin_registry_lists_and_resolves_middlewares() -> None:
+    registry = PluginRegistry()
+    definition = _definition(
+        middlewares=[
+            PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+        ]
+    )
+    middleware_executor = _FakePluginMiddlewareExecutor()
+
+    registry.register(
+        definition,
+        _FakePluginExecutor(),
+        middleware_executor=middleware_executor,
+    )
+
+    assert registry.list_middlewares() == definition.middlewares
+    assert registry.resolve_middlewares(PluginMiddlewareType.LLM) == [
+        (definition, definition.middlewares[0], middleware_executor)
+    ]
+
+
+def test_plugin_registry_resolves_middlewares_in_registration_order() -> None:
+    registry = PluginRegistry()
+    first = _definition(
+        plugin_id="plugin.first",
+        command_name="first",
+        middlewares=[
+            PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+        ],
+    )
+    second = _definition(
+        plugin_id="plugin.second",
+        command_name="second",
+        middlewares=[
+            PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+        ],
+    )
+    first_executor = _FakePluginMiddlewareExecutor()
+    second_executor = _FakePluginMiddlewareExecutor()
+
+    registry.register(
+        first,
+        _FakePluginExecutor(),
+        middleware_executor=first_executor,
+    )
+    registry.register(
+        second,
+        _FakePluginExecutor(),
+        middleware_executor=second_executor,
+    )
+
+    assert registry.resolve_middlewares(PluginMiddlewareType.LLM) == [
+        (first, first.middlewares[0], first_executor),
+        (second, second.middlewares[0], second_executor),
+    ]
+
+
+def test_plugin_registry_skips_disabled_plugin_and_middleware() -> None:
+    registry = PluginRegistry()
+    disabled_plugin = _definition(
+        plugin_id="plugin.disabled",
+        command_name="disabled",
+        enabled=False,
+        middlewares=[
+            PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+        ],
+    )
+    disabled_middleware = _definition(
+        plugin_id="middleware.disabled",
+        command_name="middleware-disabled",
+        middlewares=[
+            PluginMiddlewareDefinition(
+                middleware_type=PluginMiddlewareType.LLM,
+                enabled=False,
+            )
+        ],
+    )
+    enabled = _definition(
+        plugin_id="middleware.enabled",
+        command_name="middleware-enabled",
+        middlewares=[
+            PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+        ],
+    )
+    enabled_executor = _FakePluginMiddlewareExecutor()
+
+    registry.register(
+        disabled_plugin,
+        _FakePluginExecutor(),
+        middleware_executor=_FakePluginMiddlewareExecutor(),
+    )
+    registry.register(
+        disabled_middleware,
+        _FakePluginExecutor(),
+        middleware_executor=_FakePluginMiddlewareExecutor(),
+    )
+    registry.register(
+        enabled,
+        _FakePluginExecutor(),
+        middleware_executor=enabled_executor,
+    )
+
+    assert registry.list_middlewares() == enabled.middlewares
+    assert registry.resolve_middlewares(PluginMiddlewareType.LLM) == [
+        (enabled, enabled.middlewares[0], enabled_executor)
+    ]

@@ -15,6 +15,8 @@ from cyreneAI.core.context.manager import ContextManager
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.errors.tool import ToolExecutionError
+from cyreneAI.core.plugin.manager import PluginManager
+from cyreneAI.core.plugin.registry import PluginRegistry
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
 from cyreneAI.core.schema.context import (
     ContextBuildRequest,
@@ -34,6 +36,12 @@ from cyreneAI.core.schema.message import (
     MessageRole,
 )
 from cyreneAI.core.schema.provider import ProviderConfig, ProviderInfo, ProviderType
+from cyreneAI.core.schema.plugin import (
+    PluginDefinition,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
+)
 from cyreneAI.core.schema.skill import SkillDefinition
 from cyreneAI.core.schema.tool import ToolCall, ToolChoice, ToolDefinition, ToolResult
 from cyreneAI.core.skill.manager import SkillManager
@@ -127,6 +135,27 @@ class RecordingToolExecutor:
             name=call.name,
             content=f"executed:{call.name}",
         )
+
+
+class RecordingLLMMiddlewareExecutor:
+    def __init__(self) -> None:
+        self.calls: list[PluginMiddlewareRequest] = []
+
+    async def execute(self, request: PluginMiddlewareRequest, next_call) -> ChatResponse:
+        self.calls.append(request)
+        updated = request.model_copy(
+            update={
+                "chat_request": request.chat_request.model_copy(
+                    update={
+                        "metadata": {
+                            **request.chat_request.metadata,
+                            "middleware": "seen",
+                        }
+                    }
+                )
+            }
+        )
+        return await next_call(updated)
 
 
 class ContentOnlyContextBuilder:
@@ -343,6 +372,52 @@ async def _run_chat_orchestrator_filters_tools_by_request_and_skill() -> None:
 
 def test_chat_orchestrator_filters_tools_by_request_and_skill() -> None:
     asyncio.run(_run_chat_orchestrator_filters_tools_by_request_and_skill())
+
+
+async def _run_chat_orchestrator_runs_plugin_llm_middlewares() -> None:
+    provider = FakeChatProvider(
+        ChatResponse(
+            provider_id="provider-1",
+            model="fake-model",
+            message=_message(MessageRole.ASSISTANT, "hello"),
+            finish_reason=ChatFinishReason.STOP,
+        )
+    )
+    provider_manager = await _build_provider_manager(provider)
+    registry = PluginRegistry()
+    middleware_executor = RecordingLLMMiddlewareExecutor()
+    registry.register(
+        PluginDefinition(
+            plugin_id="thirdparty.audit",
+            name="Audit",
+            description="Trace LLM calls.",
+            middlewares=[
+                PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+            ],
+        ),
+        middleware_executor=middleware_executor,
+    )
+    runtime = CyreneAIRuntime(
+        provider_manager=provider_manager,
+        context_builder=ContextWindowBuilder(),
+        plugin_manager=PluginManager(registry),
+    )
+
+    await ChatOrchestrator(runtime).chat(
+        ApplicationChatRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            messages=[_message(MessageRole.USER, "hello")],
+        )
+    )
+
+    assert len(middleware_executor.calls) == 1
+    assert provider.requests[0].metadata["middleware"] == "seen"
+
+
+def test_chat_orchestrator_runs_plugin_llm_middlewares() -> None:
+    asyncio.run(_run_chat_orchestrator_runs_plugin_llm_middlewares())
 
 
 async def _run_chat_orchestrator_rejects_disallowed_tool_call() -> None:

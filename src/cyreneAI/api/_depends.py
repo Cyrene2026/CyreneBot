@@ -20,6 +20,7 @@ from cyreneAI.core.schema.provider import ProviderInfo, ProviderModel
 from cyreneAI.core.schema.plugin import (
     PluginCommandRequest,
     PluginEventRequest,
+    PluginMiddlewareRequest,
     PluginPermission,
     PluginTaskRequest,
 )
@@ -102,7 +103,13 @@ def Depends(name: str) -> Any:
 def _resolve_dependency(
     dependency: PluginDependency,
     runtime_context: Any,
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest | None = None,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+        | None
+    ) = None,
 ) -> Any:
     if dependency.name in {"ctx", "context", "runtime"}:
         return runtime_context

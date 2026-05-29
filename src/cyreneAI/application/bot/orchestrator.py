@@ -12,8 +12,15 @@ from cyreneAI.application.bot.command_parser import (
     should_parse_bot_command,
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
+from cyreneAI.core.plugin.manager import PluginManager
 from cyreneAI.core.errors.base import CyreneAIError
-from cyreneAI.core.errors.plugin import PluginAuthorizationError, PluginNotFoundError
+from cyreneAI.core.errors.plugin import (
+    PluginAuthorizationError,
+    PluginError,
+    PluginExecutionError,
+    PluginInputError,
+    PluginNotFoundError,
+)
 from cyreneAI.core.schema.bot import (
     BotAction,
     BotActionType,
@@ -161,6 +168,44 @@ class BotOrchestrator:
                 )
             ]
             return _command_actions_to_result(request, command.name, command.args, actions)
+        except PluginInputError as exc:
+            actions = [
+                _command_text_action(
+                    request=request,
+                    command_name=command.name,
+                    command_args=command.args,
+                    text=str(exc),
+                )
+            ]
+            return _command_actions_to_result(request, command.name, command.args, actions)
+        except PluginExecutionError:
+            logger.exception(
+                "Plugin command execution failed: command=%s",
+                command.name,
+            )
+            actions = [
+                _command_text_action(
+                    request=request,
+                    command_name=command.name,
+                    command_args=command.args,
+                    text=f"Command /{command.name} failed.",
+                )
+            ]
+            return _command_actions_to_result(request, command.name, command.args, actions)
+        except PluginError:
+            logger.exception(
+                "Plugin command failed: command=%s",
+                command.name,
+            )
+            actions = [
+                _command_text_action(
+                    request=request,
+                    command_name=command.name,
+                    command_args=command.args,
+                    text=f"Command /{command.name} failed.",
+                )
+            ]
+            return _command_actions_to_result(request, command.name, command.args, actions)
 
         return ApplicationBotResult(
             actions=plugin_result.actions,
@@ -251,7 +296,7 @@ def _metadata_is_admin(value: object) -> bool:
     return False
 
 
-def _known_plugin_command_names(plugin_manager: object | None) -> set[str] | None:
+def _known_plugin_command_names(plugin_manager: PluginManager | None) -> set[str] | None:
     if plugin_manager is None:
         return None
     return {

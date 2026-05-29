@@ -19,6 +19,9 @@ from cyreneAI.core.schema.plugin import (
     PluginEventResult,
     PluginManifest,
     PluginMessageReceipt,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginPermission,
     PluginScheduledTask,
     PluginStatusReport,
@@ -27,6 +30,7 @@ from cyreneAI.core.schema.plugin import (
     PluginTaskResult,
     PluginTaskStatus,
 )
+from cyreneAI.core.schema.chat import ChatResponse
 from cyreneAI.core.schema.provider import ProviderInfo, ProviderModel
 from cyreneAI.core.schema.skill import SkillDefinition
 from cyreneAI.core.schema.tool import ToolDefinition
@@ -65,6 +69,22 @@ class PluginEventExecutorProtocol(Protocol):
     async def execute(self, request: PluginEventRequest) -> PluginEventResult:
         """
         执行插件事件 handler。
+        """
+        ...
+
+
+class PluginMiddlewareExecutorProtocol(Protocol):
+    """
+    插件中间件执行器协议。
+    """
+
+    async def execute(
+        self,
+        request: PluginMiddlewareRequest,
+        next_call: Callable[[PluginMiddlewareRequest], Awaitable[ChatResponse]],
+    ) -> ChatResponse:
+        """
+        执行受控中间件。
         """
         ...
 
@@ -489,6 +509,16 @@ class PluginSetupContextProtocol(Protocol):
         """
         ...
 
+    def register_middleware(
+        self,
+        definition: PluginMiddlewareDefinition,
+        executor: PluginMiddlewareExecutorProtocol,
+    ) -> None:
+        """
+        注册受控中间件。
+        """
+        ...
+
     def register_tool(
         self,
         definition: ToolDefinition,
@@ -542,6 +572,7 @@ class PluginRegistryProtocol(Protocol):
         definition: PluginDefinition,
         executor: PluginExecutorProtocol | None = None,
         event_executor: PluginEventExecutorProtocol | None = None,
+        middleware_executor: PluginMiddlewareExecutorProtocol | None = None,
     ) -> None:
         """
         注册插件。
@@ -596,6 +627,12 @@ class PluginRegistryProtocol(Protocol):
         """
         ...
 
+    def list_middlewares(self) -> list[PluginMiddlewareDefinition]:
+        """
+        列出已启用中间件定义。
+        """
+        ...
+
     def record_status(self, status: PluginStatusReport) -> None:
         """
         记录插件生命周期状态。
@@ -623,5 +660,20 @@ class PluginRegistryProtocol(Protocol):
     ) -> list[tuple[PluginDefinition, PluginEventDefinition, PluginEventExecutorProtocol]]:
         """
         根据窄事件解析匹配的插件事件订阅与执行器。
+        """
+        ...
+
+    def resolve_middlewares(
+        self,
+        middleware_type: PluginMiddlewareType,
+    ) -> list[
+        tuple[
+            PluginDefinition,
+            PluginMiddlewareDefinition,
+            PluginMiddlewareExecutorProtocol,
+        ]
+    ]:
+        """
+        根据类型解析匹配的插件中间件与执行器。
         """
         ...

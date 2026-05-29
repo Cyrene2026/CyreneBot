@@ -40,6 +40,8 @@ from cyreneAI.core.schema.plugin import (
     PluginEventDefinition,
     PluginEventType,
     PluginLifecycleStatus,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareType,
     PluginStatusReport,
     PluginTaskDefinition,
 )
@@ -228,6 +230,12 @@ def _plugin_client() -> TestClient:
                 PluginTaskDefinition(
                     name="follow_up",
                     description="Follow up later.",
+                )
+            ],
+            middlewares=[
+                PluginMiddlewareDefinition(
+                    middleware_type=PluginMiddlewareType.LLM,
+                    description="Trace LLM calls.",
                 )
             ],
         )
@@ -513,10 +521,12 @@ def test_server_lists_plugins_commands_events_tasks_and_statuses() -> None:
     events = client.get("/plugins/events")
     tasks = client.get("/plugins/tasks")
     statuses = client.get("/plugins/statuses")
+    middlewares = client.get("/plugins/middlewares")
     plugin_detail = client.get("/plugins/demo.hello")
     plugin_commands = client.get("/plugins/demo.hello/commands")
     plugin_events = client.get("/plugins/demo.hello/events")
     plugin_tasks = client.get("/plugins/demo.hello/tasks")
+    plugin_middlewares = client.get("/plugins/demo.hello/middlewares")
     plugin_status = client.get("/plugins/demo.hello/status")
 
     assert plugins.status_code == 200
@@ -530,6 +540,7 @@ def test_server_lists_plugins_commands_events_tasks_and_statuses() -> None:
     ]
     assert events.json()["events"][0]["event_type"] == "message"
     assert tasks.json()["tasks"][0]["name"] == "follow_up"
+    assert middlewares.json()["middlewares"][0]["middleware_type"] == "llm"
     assert statuses.json()["statuses"][0]["plugin_id"] == "demo.hello"
     assert statuses.json()["statuses"][1]["status"] == "disabled"
     assert plugin_detail.status_code == 200
@@ -540,6 +551,8 @@ def test_server_lists_plugins_commands_events_tasks_and_statuses() -> None:
     assert plugin_events.json()["events"][0]["event_type"] == "message"
     assert plugin_tasks.status_code == 200
     assert plugin_tasks.json()["tasks"][0]["name"] == "follow_up"
+    assert plugin_middlewares.status_code == 200
+    assert plugin_middlewares.json()["middlewares"][0]["middleware_type"] == "llm"
     assert plugin_status.status_code == 200
     assert plugin_status.json()["plugin_id"] == "demo.hello"
 

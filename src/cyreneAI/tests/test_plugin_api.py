@@ -19,6 +19,7 @@ from cyreneAI.core.schema.plugin import (
     PluginEventResult,
     PluginEventType,
     PluginManifest,
+    PluginMiddlewareType,
     PluginTaskRequest,
     PluginTaskResult,
 )
@@ -350,6 +351,21 @@ def test_cyrene_bot_event_decorator_can_infer_type_from_function_name() -> None:
     assert len(events) == 1
     assert events[0].event_type == PluginEventType.MESSAGE
     assert events[0].description == "Observe messages."
+
+
+def test_cyrene_bot_middleware_decorator_records_llm_middleware() -> None:
+    plugin = CyreneBot()
+
+    @plugin.middleware("llm")
+    async def audit(request, next):
+        """Trace LLM calls."""
+        return await next(request)
+
+    middlewares = plugin.middlewares
+
+    assert len(middlewares) == 1
+    assert middlewares[0].middleware_type == PluginMiddlewareType.LLM
+    assert middlewares[0].description == "Trace LLM calls."
 
 
 def test_cyrene_router_can_include_child_router() -> None:

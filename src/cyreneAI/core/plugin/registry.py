@@ -4,12 +4,15 @@ from cyreneAI.core.errors.base import ConflictError
 from cyreneAI.core.errors.plugin import PluginNotFoundError, PluginStateError
 from cyreneAI.core.plugin.plugin_protocol import PluginExecutorProtocol
 from cyreneAI.core.plugin.plugin_protocol import PluginEventExecutorProtocol
+from cyreneAI.core.plugin.plugin_protocol import PluginMiddlewareExecutorProtocol
 from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginDefinition,
     PluginEvent,
     PluginEventDefinition,
     PluginLifecycleStatus,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareType,
     PluginStatusReport,
     PluginTaskDefinition,
 )
@@ -24,6 +27,7 @@ class PluginRegistry:
         self._definitions: dict[str, PluginDefinition] = {}
         self._executors: dict[str, PluginExecutorProtocol] = {}
         self._event_executors: dict[str, PluginEventExecutorProtocol] = {}
+        self._middleware_executors: dict[str, PluginMiddlewareExecutorProtocol] = {}
         self._command_to_plugin: dict[str, str] = {}
         self._statuses: dict[str, PluginStatusReport] = {}
 
@@ -32,6 +36,7 @@ class PluginRegistry:
         definition: PluginDefinition,
         executor: PluginExecutorProtocol | None = None,
         event_executor: PluginEventExecutorProtocol | None = None,
+        middleware_executor: PluginMiddlewareExecutorProtocol | None = None,
     ) -> None:
         """
         注册插件。
@@ -50,6 +55,8 @@ class PluginRegistry:
             self._executors[definition.plugin_id] = executor
         if event_executor is not None:
             self._event_executors[definition.plugin_id] = event_executor
+        if middleware_executor is not None:
+            self._middleware_executors[definition.plugin_id] = middleware_executor
         for command_name in command_names:
             self._command_to_plugin[command_name] = definition.plugin_id
 
@@ -66,6 +73,7 @@ class PluginRegistry:
         self._definitions.pop(plugin_id, None)
         self._executors.pop(plugin_id, None)
         self._event_executors.pop(plugin_id, None)
+        self._middleware_executors.pop(plugin_id, None)
         self._statuses.pop(plugin_id, None)
 
     def get_definition(self, plugin_id: str) -> PluginDefinition:
@@ -132,6 +140,19 @@ class PluginRegistry:
             tasks.extend(task for task in definition.tasks if task.enabled)
         return tasks
 
+    def list_middlewares(self) -> list[PluginMiddlewareDefinition]:
+        """
+        列出已启用插件中间件。
+        """
+        middlewares: list[PluginMiddlewareDefinition] = []
+        for definition in self._definitions.values():
+            if not definition.enabled:
+                continue
+            middlewares.extend(
+                middleware for middleware in definition.middlewares if middleware.enabled
+            )
+        return middlewares
+
     def record_status(self, status: PluginStatusReport) -> None:
         """
         记录插件生命周期状态。
@@ -186,6 +207,39 @@ class PluginRegistry:
                     continue
                 if event_definition.event_type == event.event_type:
                     resolved.append((definition, event_definition, executor))
+        return resolved
+
+    def resolve_middlewares(
+        self,
+        middleware_type: PluginMiddlewareType,
+    ) -> list[
+        tuple[
+            PluginDefinition,
+            PluginMiddlewareDefinition,
+            PluginMiddlewareExecutorProtocol,
+        ]
+    ]:
+        """
+        根据中间件类型解析所有匹配的插件中间件。
+        """
+        resolved: list[
+            tuple[
+                PluginDefinition,
+                PluginMiddlewareDefinition,
+                PluginMiddlewareExecutorProtocol,
+            ]
+        ] = []
+        for definition in self._definitions.values():
+            if not definition.enabled:
+                continue
+            executor = self._middleware_executors.get(definition.plugin_id)
+            if executor is None:
+                continue
+            for middleware in definition.middlewares:
+                if not middleware.enabled:
+                    continue
+                if middleware.middleware_type == middleware_type:
+                    resolved.append((definition, middleware, executor))
         return resolved
 
     def _enabled_command_names(self, definition: PluginDefinition) -> set[str]:

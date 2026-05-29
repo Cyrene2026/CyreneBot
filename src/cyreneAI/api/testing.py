@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+from collections.abc import Awaitable, Callable
 from inspect import isawaitable
 from typing import Any
 
@@ -18,7 +19,8 @@ from cyreneAI.core.schema.bot import (
     BotEventType,
     BotMessage,
 )
-from cyreneAI.core.schema.message import ContentPart, ContentPartType
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.message import ContentPart, ContentPartType, Message, MessageRole
 from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginCommandRequest,
@@ -30,6 +32,9 @@ from cyreneAI.core.schema.plugin import (
     PluginEventType,
     PluginManifest,
     PluginMessageReceipt,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginPermission,
     PluginTaskDefinition,
     PluginTaskRequest,
@@ -144,7 +149,7 @@ class PluginTestClient:
         self.assets = _PluginTestAssets()
         self.messages = _PluginTestMessages()
         self.scheduler = _PluginTestTasks()
-        resolved_dependencies = {
+        resolved_dependencies: dict[str, Any] = {
             "storage": self.storage,
             "assets": self.assets,
             "messages": self.messages,
@@ -176,6 +181,10 @@ class PluginTestClient:
         return [entry.definition for entry in self._context.tasks]
 
     @property
+    def middlewares(self) -> list[PluginMiddlewareDefinition]:
+        return [entry.definition for entry in self._context.middlewares]
+
+    @property
     def sent_messages(self) -> list[dict[str, Any]]:
         return list(self.messages.sent)
 
@@ -192,6 +201,9 @@ class PluginTestClient:
         session_id: str = "test:user-1",
         user_id: str = "user-1",
         event_id: str = "event-1",
+        provider_id: str | None = None,
+        model: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> PluginTestCommandResult:
         event = _command_event(
             text,
@@ -215,6 +227,12 @@ class PluginTestClient:
                 command=command,
                 event=event,
                 is_admin=is_admin,
+                metadata=_request_metadata(
+                    metadata,
+                    provider_id=provider_id,
+                    model=model,
+                    session_id=session_id,
+                ),
             )
         )
         return PluginTestCommandResult(result)
@@ -229,6 +247,8 @@ class PluginTestClient:
         thread_id: str | None = None,
         message_id: str | None = None,
         event_id: str = "event-1",
+        provider_id: str | None = None,
+        model: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> PluginTestEventResult:
         event = PluginEvent(
@@ -247,7 +267,12 @@ class PluginTestClient:
                     PluginEventRequest(
                         route=entry.definition,
                         event=event,
-                        metadata=dict(metadata or {}),
+                        metadata=_request_metadata(
+                            metadata,
+                            provider_id=provider_id,
+                            model=model,
+                            session_id=session_id,
+                        ),
                     )
                 )
             )
@@ -258,6 +283,9 @@ class PluginTestClient:
         name: str,
         *,
         payload: dict[str, Any] | None = None,
+        provider_id: str | None = None,
+        model: str | None = None,
+        session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> PluginTestTaskResult:
         entry = self._context.resolve_task(name)
@@ -265,10 +293,55 @@ class PluginTestClient:
             PluginTaskRequest(
                 task=entry.definition,
                 payload=dict(payload or {}),
-                metadata=dict(metadata or {}),
+                metadata=_request_metadata(
+                    metadata,
+                    provider_id=provider_id,
+                    model=model,
+                    session_id=session_id,
+                ),
             )
         )
         return PluginTestTaskResult(result)
+
+    async def llm_middleware(
+        self,
+        chat_request: ChatRequest | str,
+        next_call: Callable[[ChatRequest], Awaitable[ChatResponse]],
+        *,
+        provider_id: str | None = None,
+        model: str | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ChatResponse:
+        current_chat_request = _chat_request(
+            chat_request,
+            provider_id=provider_id,
+            model=model,
+            session_id=session_id,
+            metadata=metadata,
+        )
+        entries = self._context.resolve_middlewares(PluginMiddlewareType.LLM)
+
+        async def call_at(index: int, current_request: ChatRequest) -> ChatResponse:
+            if index >= len(entries):
+                return await next_call(current_request)
+            entry = entries[index]
+
+            async def call_next(
+                middleware_request: PluginMiddlewareRequest,
+            ) -> ChatResponse:
+                return await call_at(index + 1, middleware_request.chat_request)
+
+            return await entry.executor.execute(
+                PluginMiddlewareRequest(
+                    route=entry.definition,
+                    chat_request=current_request,
+                    metadata={"plugin_id": self._manifest.plugin_id},
+                ),
+                call_next,
+            )
+
+        return await call_at(0, current_chat_request)
 
 
 class _PluginTestRuntimeContext:
@@ -297,9 +370,21 @@ class _PluginTestRuntimeContext:
     def llm(self) -> Any:
         return self._dependency("llm")
 
-    @property
-    def generate_image(self) -> Any:
-        return self._dependency("generate_image", "image")
+    def llm_for_request(self, request: Any) -> Any:
+        value = self.llm
+        for_request = getattr(value, "for_request", None)
+        if callable(for_request):
+            return for_request(request)
+        return value
+
+    async def generate_image(self, request: Any) -> Any:
+        value = self._dependency("generate_image", "image")
+        if callable(value):
+            result = value(request)
+            if isawaitable(result):
+                return await result
+            return result
+        return value
 
     def list_providers(self) -> Any:
         value = self._dependency("providers", "list_providers")
@@ -468,6 +553,7 @@ class _PluginTestSetupContext:
         self.commands: list[_PluginTestCommandEntry] = []
         self.tasks: list[_PluginTestTaskEntry] = []
         self.events: list[_PluginTestEventEntry] = []
+        self.middlewares: list[_PluginTestMiddlewareEntry] = []
         self.tools: list[tuple[Any, Any]] = []
         self.skills: list[Any] = []
 
@@ -509,6 +595,9 @@ class _PluginTestSetupContext:
     def register_skill(self, definition: Any) -> None:
         self.skills.append(definition)
 
+    def register_middleware(self, definition: Any, executor: Any) -> None:
+        self.middlewares.append(_PluginTestMiddlewareEntry(definition, executor))
+
     def resolve_command(self, name: str) -> _PluginTestCommandEntry:
         normalized_name = _normalize_command_name(name)
         for entry in self.commands:
@@ -543,6 +632,16 @@ class _PluginTestSetupContext:
             raise PluginNotFoundError(f"插件事件订阅不存在: {event_type}")
         return entries
 
+    def resolve_middlewares(
+        self,
+        middleware_type: PluginMiddlewareType,
+    ) -> list["_PluginTestMiddlewareEntry"]:
+        return [
+            entry
+            for entry in self.middlewares
+            if entry.definition.middleware_type == middleware_type
+        ]
+
 
 class _PluginTestCommandEntry:
     def __init__(
@@ -574,6 +673,16 @@ class _PluginTestEventEntry:
         self.executor = executor
 
 
+class _PluginTestMiddlewareEntry:
+    def __init__(
+        self,
+        definition: PluginMiddlewareDefinition,
+        executor: Any,
+    ) -> None:
+        self.definition = definition
+        self.executor = executor
+
+
 def _plugin_manifest_or_default(plugin: CyreneBot) -> PluginManifest:
     try:
         return plugin.manifest
@@ -584,6 +693,68 @@ def _plugin_manifest_or_default(plugin: CyreneBot) -> PluginManifest:
             description="Local plugin test manifest.",
             entrypoint="test.py",
         )
+
+
+def _request_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    provider_id: str | None = None,
+    model: str | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    result = dict(metadata or {})
+    if provider_id is not None:
+        result["provider_id"] = provider_id
+    if model is not None:
+        result["model"] = model
+    if session_id is not None:
+        result.setdefault("session_id", session_id)
+    return result
+
+
+def _chat_request(
+    value: ChatRequest | str,
+    *,
+    provider_id: str | None,
+    model: str | None,
+    session_id: str | None,
+    metadata: dict[str, Any] | None,
+) -> ChatRequest:
+    if isinstance(value, ChatRequest):
+        update: dict[str, Any] = {}
+        if provider_id is not None:
+            update["provider_id"] = provider_id
+        if model is not None:
+            update["model"] = model
+        merged_metadata = _request_metadata(
+            {
+                **value.metadata,
+                **(metadata or {}),
+            },
+            session_id=session_id,
+        )
+        if merged_metadata != value.metadata:
+            update["metadata"] = merged_metadata
+        if update:
+            return value.model_copy(update=update)
+        return value
+
+    return ChatRequest(
+        provider_id=provider_id or "test-provider",
+        model=model or "test-model",
+        messages=[
+            Message(
+                role=MessageRole.USER,
+                content=[
+                    ContentPart(
+                        type=ContentPartType.TEXT,
+                        text=value,
+                    )
+                ],
+            )
+        ],
+        metadata=_request_metadata(metadata, session_id=session_id),
+    )
 
 
 def _command_event(

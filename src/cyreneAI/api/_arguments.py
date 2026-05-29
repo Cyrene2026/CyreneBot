@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from inspect import Parameter, Signature
-from typing import Annotated, Any, TypeAlias, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    TypeAlias,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from cyreneAI.api._depends import PluginDependency, _resolve_dependency
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
@@ -10,6 +18,7 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandArgumentDefinition,
     PluginCommandRequest,
     PluginEventRequest,
+    PluginMiddlewareRequest,
     PluginTaskRequest,
 )
 
@@ -86,7 +95,10 @@ class Choice:
     """
 
     def __class_getitem__(cls, item: Any) -> Any:
-        choices = item if isinstance(item, tuple) else (item,)
+        choices: tuple[Any, ...] = cast(
+            tuple[Any, ...],
+            item if isinstance(item, tuple) else (item,),
+        )
         if not choices:
             raise TypeError("Choice[...] requires at least one value")
         base_type = _choice_base_type(choices)
@@ -205,7 +217,12 @@ def _metadata_default(value: Any) -> Any:
 
 def _build_handler_arguments(
     handler_signature: Signature,
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
     runtime_context: Any,
     *,
     usage: str | None = None,
@@ -249,6 +266,8 @@ def _build_handler_arguments(
         if is_command_argument:
             argument_kind = _command_argument_kind_for_parameter(parameter, type_hints)
             if argument_kind == PluginCommandArgumentKind.REST:
+                if parsed_command_args is None:
+                    raise PluginConfigurationError("插件命令参数解析状态缺失")
                 command_arg_index = len(parsed_command_args.positionals)
             elif argument_kind in {
                 PluginCommandArgumentKind.OPTION,
@@ -320,6 +339,8 @@ def _validate_handler_signature(
         if parameter.name in {"ctx", "context"}:
             slot_index = max(slot_index, 2)
             continue
+        if handler_label == "插件中间件" and parameter.name in {"next", "call_next"}:
+            continue
         if slot_index < 2:
             slot_index += 1
             continue
@@ -330,7 +351,12 @@ def _validate_handler_signature(
 
 def _resolve_handler_parameter(
     parameter: Parameter,
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
     runtime_context: Any,
     slot_index: int,
     command_arg_index: int,
@@ -347,8 +373,10 @@ def _resolve_handler_parameter(
         return request.event
     if parameter.name in {"ctx", "context"}:
         return runtime_context
+    if parameter.name in {"next", "call_next"}:
+        return _UNSET
     if _is_command_argument_value(parameter, request, type_hints):
-        if parsed_command_args is None:
+        if not isinstance(request, PluginCommandRequest) or parsed_command_args is None:
             raise PluginConfigurationError("插件命令参数解析状态缺失")
         return _resolve_command_argument(
             parameter,
@@ -462,6 +490,10 @@ def _resolve_named_command_argument(
 ) -> Any:
     argument_kind = _command_argument_kind_for_parameter(parameter, type_hints)
     argument_type = _command_argument_type_for_parameter(parameter, type_hints)
+    if argument_type is None:
+        raise PluginConfigurationError(
+            f"插件命令 handler 参数 {parameter.name} 不支持从命令参数解析"
+        )
     if argument_kind == PluginCommandArgumentKind.FLAG:
         if parameter.name not in parsed_command_args.options:
             return _UNSET
@@ -652,7 +684,12 @@ def _validate_command_argument_choice(
 
 def _is_command_argument_value(
     parameter: Parameter,
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
     type_hints: dict[str, Any] | None,
 ) -> bool:
     return (
@@ -690,7 +727,7 @@ def _command_argument_type_for_parameter(
             f"插件命令参数 {parameter.name} 的标记类型不支持"
         )
     if marked_argument_type is not None:
-        return marked_argument_type
+        return cast(type, marked_argument_type)
     return _command_argument_type(
         annotation
     ) or _command_argument_type_from_default(parameter) or str
@@ -853,7 +890,8 @@ def _dedupe_aliases(
 
 
 def _choice_base_type(choices: tuple[Any, ...]) -> type:
-    first_type = type(choices[0])
+    first_value: object = choices[0]
+    first_type: type = type(first_value)
     if first_type is bool:
         return bool
     if first_type in {str, int, float} and all(
@@ -904,14 +942,15 @@ class _ParsedCommandArguments:
 
 def _command_argument_type(annotation: Any) -> type | None:
     if annotation in {str, int, float, bool}:
-        return annotation
+        return cast(type, annotation)
     if isinstance(annotation, str):
-        return {
+        named_types: dict[str, type] = {
             "str": str,
             "int": int,
             "float": float,
             "bool": bool,
-        }.get(annotation.strip())
+        }
+        return named_types.get(annotation.strip())
     return None
 
 
@@ -939,7 +978,12 @@ def _normalize_command_path(value: str) -> str:
 def _advance_slot_index(
     slot_index: int,
     value: Any,
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
     runtime_context: Any,
 ) -> int:
     if value is request:

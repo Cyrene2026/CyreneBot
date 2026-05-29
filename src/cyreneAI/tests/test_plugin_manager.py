@@ -9,6 +9,7 @@ from cyreneAI.core.errors.plugin import (
 from cyreneAI.core.plugin.manager import PluginManager
 from cyreneAI.core.plugin.registry import PluginRegistry
 from cyreneAI.core.schema.bot import BotCommand
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
 from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginCommandRequest,
@@ -19,6 +20,9 @@ from cyreneAI.core.schema.plugin import (
     PluginEventRequest,
     PluginEventResult,
     PluginEventType,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginTaskDefinition,
 )
 
@@ -47,6 +51,44 @@ class _RecordingPluginEventExecutor:
         return PluginEventResult(metadata={"event": request.event.text})
 
 
+class _RecordingPluginMiddlewareExecutor:
+    def __init__(self, name: str, calls: list[str]) -> None:
+        self.name = name
+        self.calls = calls
+        self.requests: list[PluginMiddlewareRequest] = []
+
+    async def execute(
+        self,
+        request: PluginMiddlewareRequest,
+        next_call,
+    ) -> ChatResponse:
+        self.requests.append(request)
+        self.calls.append(f"{self.name}:before")
+        updated = request.model_copy(
+            update={
+                "chat_request": request.chat_request.model_copy(
+                    update={
+                        "metadata": {
+                            **request.chat_request.metadata,
+                            self.name: "seen",
+                        }
+                    }
+                )
+            }
+        )
+        response = await next_call(updated)
+        self.calls.append(f"{self.name}:after")
+        return response
+
+
+class _FailingPluginMiddlewareExecutor:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def execute(self, request: PluginMiddlewareRequest, next_call) -> ChatResponse:
+        raise self.error
+
+
 def _definition(*, admin_required: bool = False) -> PluginDefinition:
     return PluginDefinition(
         plugin_id="builtin.help",
@@ -71,6 +113,12 @@ def _definition(*, admin_required: bool = False) -> PluginDefinition:
                 description="Clean up plugin state.",
             )
         ],
+        middlewares=[
+            PluginMiddlewareDefinition(
+                middleware_type=PluginMiddlewareType.LLM,
+                description="Trace LLM calls.",
+            )
+        ],
     )
 
 
@@ -91,10 +139,12 @@ def test_plugin_manager_lists_plugins_and_commands() -> None:
     assert manager.list_commands() == definition.commands
     assert manager.list_events() == definition.events
     assert manager.list_tasks() == definition.tasks
+    assert manager.list_middlewares() == definition.middlewares
     assert manager.get_plugin(definition.plugin_id) == definition
     assert manager.list_plugin_commands(definition.plugin_id) == definition.commands
     assert manager.list_plugin_events(definition.plugin_id) == definition.events
     assert manager.list_plugin_tasks(definition.plugin_id) == definition.tasks
+    assert manager.list_plugin_middlewares(definition.plugin_id) == definition.middlewares
     assert manager.get_plugin_status(definition.plugin_id).plugin_id == definition.plugin_id
 
 
@@ -195,3 +245,111 @@ def test_plugin_manager_dispatches_event() -> None:
     import asyncio
 
     asyncio.run(_run_dispatch_event())
+
+
+async def _run_execute_llm_middlewares_in_registration_order() -> None:
+    calls: list[str] = []
+    first = _definition().model_copy(
+        update={
+            "plugin_id": "plugin.first",
+            "name": "First",
+            "commands": [
+                PluginCommandDefinition(name="first", description="First command."),
+            ],
+        }
+    )
+    second = _definition().model_copy(
+        update={
+            "plugin_id": "plugin.second",
+            "name": "Second",
+            "commands": [
+                PluginCommandDefinition(name="second", description="Second command."),
+            ],
+        }
+    )
+    first_executor = _RecordingPluginMiddlewareExecutor("first", calls)
+    second_executor = _RecordingPluginMiddlewareExecutor("second", calls)
+    registry = PluginRegistry()
+    registry.register(
+        first,
+        _RecordingPluginExecutor(),
+        middleware_executor=first_executor,
+    )
+    registry.register(
+        second,
+        _RecordingPluginExecutor(),
+        middleware_executor=second_executor,
+    )
+    manager = PluginManager(registry)
+
+    async def final(chat_request: ChatRequest) -> ChatResponse:
+        calls.append("provider")
+        return ChatResponse(
+            provider_id=chat_request.provider_id,
+            model=chat_request.model,
+            raw={"metadata": dict(chat_request.metadata)},
+        )
+
+    response = await manager.execute_llm_middlewares(
+        ChatRequest(
+            provider_id="provider-1",
+            model="model",
+            messages=[],
+        ),
+        final,
+    )
+
+    assert calls == [
+        "first:before",
+        "second:before",
+        "provider",
+        "second:after",
+        "first:after",
+    ]
+    assert response.raw == {
+        "metadata": {
+            "first": "seen",
+            "second": "seen",
+        }
+    }
+    assert first_executor.requests[0].metadata == {"plugin_id": "plugin.first"}
+    assert second_executor.requests[0].metadata == {"plugin_id": "plugin.second"}
+
+
+def test_plugin_manager_executes_llm_middlewares_in_registration_order() -> None:
+    import asyncio
+
+    asyncio.run(_run_execute_llm_middlewares_in_registration_order())
+
+
+async def _run_execute_llm_middlewares_wraps_unexpected_errors() -> None:
+    error = RuntimeError("boom")
+    definition = _definition()
+    registry = PluginRegistry()
+    registry.register(
+        definition,
+        _RecordingPluginExecutor(),
+        middleware_executor=_FailingPluginMiddlewareExecutor(error),
+    )
+    manager = PluginManager(registry)
+
+    async def final(chat_request: ChatRequest) -> ChatResponse:
+        return ChatResponse(provider_id=chat_request.provider_id)
+
+    with pytest.raises(PluginExecutionError) as caught:
+        await manager.execute_llm_middlewares(
+            ChatRequest(
+                provider_id="provider-1",
+                model="model",
+                messages=[],
+            ),
+            final,
+        )
+
+    assert caught.value.cause is error
+
+
+def test_plugin_manager_wraps_unexpected_middleware_errors() -> None:
+    import asyncio
+
+    asyncio.run(_run_execute_llm_middlewares_wraps_unexpected_errors())

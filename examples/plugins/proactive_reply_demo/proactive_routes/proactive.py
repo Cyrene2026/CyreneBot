@@ -1,24 +1,25 @@
 import time
 
-from cyreneAI.api import CyreneRouter, Depends, text
+from cyreneAI.api import CyreneRouter, Depends
 
 
 router = CyreneRouter()
+commands = CyreneRouter(prefix="/proactive")
 DEFAULT_FOLLOW_UP_DELAY_SECONDS = 30.0
 DEFAULT_FOLLOW_UP_COOLDOWN_SECONDS = 300.0
 
 
-@router.command("/proactive status")
+@commands.command
 async def status(request, storage=Depends("storage")):
     """Show proactive reply demo status."""
     session_id = request.event.session_id if request.event else "unknown"
     state = await storage.get(f"last_message_{session_id}", default={})
     last_text = state.get("text") or "none"
-    return text(request, f"Proactive reply demo is running. Last message: {last_text}")
+    return f"Proactive reply demo is running. Last message: {last_text}"
 
 
-@router.event("message")
-async def remember_message(request, storage=Depends("storage"), tasks=Depends("tasks")):
+@router.event
+async def on_message(request, storage=Depends("storage"), tasks=Depends("tasks")):
     """Schedule a follow-up after a message."""
     event = request.event
     message_text = (event.text or "").strip()
@@ -82,3 +83,6 @@ def _metadata_float(request, key: str, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+router.include_router(commands)

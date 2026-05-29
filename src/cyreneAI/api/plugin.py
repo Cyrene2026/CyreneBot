@@ -11,6 +11,8 @@ from cyreneAI.api._types import (
     PluginCommandHandlerResult,
     PluginCommandHandlerReturn,
     PluginEventHandler,
+    PluginMiddlewareHandler,
+    PluginMiddlewareNext,
     PluginTaskHandler,
 )
 
@@ -26,6 +28,8 @@ __all__ = [
     "PluginCommandHandlerReturn",
     "PluginDependency",
     "PluginEventHandler",
+    "PluginMiddlewareHandler",
+    "PluginMiddlewareNext",
     "PluginTaskHandler",
     "Arg",
     "Choice",

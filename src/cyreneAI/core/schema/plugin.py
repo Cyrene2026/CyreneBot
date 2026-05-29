@@ -8,6 +8,7 @@ from pydantic import Field
 
 from cyreneAI.core.schema.base import CyreneAISchema
 from cyreneAI.core.schema.bot import BotAction, BotCommand, BotEvent
+from cyreneAI.core.schema.chat import ChatRequest
 
 
 class PluginBase(CyreneAISchema):
@@ -34,6 +35,7 @@ class PluginCapability(StrEnum):
     SKILL = "skill"
     TASK = "task"
     EVENT = "event"
+    MIDDLEWARE = "middleware"
 
 
 class PluginPermission(StrEnum):
@@ -103,6 +105,14 @@ class PluginEventType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class PluginMiddlewareType(StrEnum):
+    """
+    插件可注册的受控中间件类型。
+    """
+
+    LLM = "llm"
+
+
 class PluginCommandArgumentKind(StrEnum):
     """
     插件命令参数的解析形态。
@@ -169,6 +179,17 @@ class PluginEventDefinition(PluginBase):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PluginMiddlewareDefinition(PluginBase):
+    """
+    插件声明的受控中间件定义。
+    """
+
+    middleware_type: PluginMiddlewareType
+    description: str = ""
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PluginDefinition(PluginBase):
     """
     插件清单定义。
@@ -188,6 +209,7 @@ class PluginDefinition(PluginBase):
     commands: list[PluginCommandDefinition] = Field(default_factory=list)
     tasks: list[PluginTaskDefinition] = Field(default_factory=list)
     events: list[PluginEventDefinition] = Field(default_factory=list)
+    middlewares: list[PluginMiddlewareDefinition] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -250,6 +272,7 @@ class PluginManifest(PluginBase):
     commands: list[PluginCommandDefinition] = Field(default_factory=list)
     tasks: list[PluginTaskDefinition] = Field(default_factory=list)
     events: list[PluginEventDefinition] = Field(default_factory=list)
+    middlewares: list[PluginMiddlewareDefinition] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -273,6 +296,7 @@ class PluginManifest(PluginBase):
             commands=list(self.commands),
             tasks=list(self.tasks),
             events=list(self.events),
+            middlewares=list(self.middlewares),
             enabled=self.enabled,
             builtin=self.builtin,
             metadata=dict(self.metadata),
@@ -339,6 +363,16 @@ class PluginEventRequest(PluginBase):
 
     route: PluginEventDefinition
     event: PluginEvent
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginMiddlewareRequest(PluginBase):
+    """
+    插件中间件执行请求。
+    """
+
+    route: PluginMiddlewareDefinition
+    chat_request: ChatRequest
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

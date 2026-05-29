@@ -13,6 +13,7 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginDefinition,
     PluginEventDefinition,
+    PluginMiddlewareDefinition,
     PluginRuntimeDependencyInfo,
     PluginRuntimePermissionInfo,
     PluginStatusReport,
@@ -58,6 +59,14 @@ async def list_plugin_tasks(
 ) -> dict[str, list[PluginTaskDefinition]]:
     manager = _get_plugin_manager(runtime)
     return {"tasks": manager.list_tasks()}
+
+
+@router.get("/middlewares", response_model=dict[str, list[PluginMiddlewareDefinition]])
+async def list_plugin_middlewares(
+    runtime: CyreneAIRuntime = Depends(get_runtime),
+) -> dict[str, list[PluginMiddlewareDefinition]]:
+    manager = _get_plugin_manager(runtime)
+    return {"middlewares": manager.list_middlewares()}
 
 
 @router.get("/statuses", response_model=dict[str, list[PluginStatusReport]])
@@ -138,6 +147,21 @@ async def list_single_plugin_tasks(
     manager = _get_plugin_manager(runtime)
     try:
         return {"tasks": manager.list_plugin_tasks(plugin_id)}
+    except PluginNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{plugin_id}/middlewares",
+    response_model=dict[str, list[PluginMiddlewareDefinition]],
+)
+async def list_single_plugin_middlewares(
+    plugin_id: str,
+    runtime: CyreneAIRuntime = Depends(get_runtime),
+) -> dict[str, list[PluginMiddlewareDefinition]]:
+    manager = _get_plugin_manager(runtime)
+    try:
+        return {"middlewares": manager.list_plugin_middlewares(plugin_id)}
     except PluginNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

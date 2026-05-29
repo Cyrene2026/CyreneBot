@@ -18,6 +18,7 @@ from cyreneAI.core.plugin.plugin_protocol import (
     PluginEventExecutorProtocol,
     PluginLLMNamespaceProtocol,
     PluginLoaderProtocol,
+    PluginMiddlewareExecutorProtocol,
     PluginModuleProtocol,
     PluginOutboxNamespaceProtocol,
     PluginRegistryProtocol,
@@ -44,9 +45,13 @@ from cyreneAI.core.schema.plugin import (
     PluginEventResult,
     PluginLifecycleStatus,
     PluginManifest,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginPermission,
     PluginStatusReport,
     PluginTaskDefinition,
+    PluginTaskRequest,
 )
 from cyreneAI.core.schema.provider import ProviderInfo, ProviderModel
 from cyreneAI.core.schema.skill import SkillDefinition
@@ -210,11 +215,12 @@ class PluginHost:
             ) from exc
 
         definition = setup_context.build_definition()
-        command_executor, event_executor = setup_context.build_executors()
+        command_executor, event_executor, middleware_executor = setup_context.build_executors()
         self._registry.register(
             definition,
             command_executor,
             event_executor=event_executor,
+            middleware_executor=middleware_executor,
         )
         return definition
 
@@ -266,7 +272,12 @@ class ApplicationPluginRuntimeContext:
 
     def llm_for_request(
         self,
-        request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+        request: (
+            PluginCommandRequest
+            | PluginTaskRequest
+            | PluginEventRequest
+            | PluginMiddlewareRequest
+        ),
     ) -> PluginLLMNamespaceProtocol:
         self.require_permission(PluginPermission.LLM)
         return ApplicationPluginLLMNamespace(
@@ -275,7 +286,7 @@ class ApplicationPluginRuntimeContext:
             default_provider_id=_request_metadata_str(request, "provider_id"),
             default_model=_request_metadata_str(request, "model"),
             default_session_id=_request_session_id(request),
-            default_metadata=dict(request.metadata),
+            default_metadata=_request_metadata(request),
         )
 
     @property
@@ -424,10 +435,13 @@ class ApplicationPluginSetupContext:
         self._commands: list[PluginCommandDefinition] = list(manifest.commands)
         self._tasks: list[PluginTaskDefinition] = list(manifest.tasks)
         self._events: list[PluginEventDefinition] = list(manifest.events)
+        self._middlewares: list[PluginMiddlewareDefinition] = list(manifest.middlewares)
         self._command_executors: dict[str, PluginExecutorProtocol] = {}
         self._event_executors: dict[str, PluginEventExecutorProtocol] = {}
+        self._middleware_executors: dict[str, PluginMiddlewareExecutorProtocol] = {}
         self._task_executor_names: set[str] = set()
         self._event_executor_names: set[str] = set()
+        self._middleware_executor_names: set[str] = set()
 
     @property
     def manifest(self) -> PluginManifest:
@@ -478,6 +492,19 @@ class ApplicationPluginSetupContext:
         self._event_executor_names.add(event_name)
         self._event_executors[event_name] = executor
 
+    def register_middleware(
+        self,
+        definition: PluginMiddlewareDefinition,
+        executor: PluginMiddlewareExecutorProtocol,
+    ) -> None:
+        self._ensure_capability(PluginCapability.MIDDLEWARE)
+        self._register_middleware_definition(definition)
+        middleware_name = _normalize_middleware_type(definition.middleware_type)
+        if middleware_name in self._middleware_executor_names:
+            raise PluginConfigurationError(f"插件中间件 {middleware_name} 重复注册")
+        self._middleware_executor_names.add(middleware_name)
+        self._middleware_executors[middleware_name] = executor
+
     def register_tool(
         self,
         definition: ToolDefinition,
@@ -508,17 +535,30 @@ class ApplicationPluginSetupContext:
                 raise PluginConfigurationError(
                     f"插件事件 {event.event_type} 未注册执行器"
                 )
+        for middleware in self._middlewares:
+            if (
+                _normalize_middleware_type(middleware.middleware_type)
+                not in self._middleware_executor_names
+            ):
+                raise PluginConfigurationError(
+                    f"插件中间件 {middleware.middleware_type} 未注册执行器"
+                )
         return definition.model_copy(
             update={
                 "commands": list(self._commands),
                 "tasks": list(self._tasks),
                 "events": list(self._events),
+                "middlewares": list(self._middlewares),
             }
         )
 
     def build_executors(
         self,
-    ) -> tuple[PluginExecutorProtocol | None, PluginEventExecutorProtocol | None]:
+    ) -> tuple[
+        PluginExecutorProtocol | None,
+        PluginEventExecutorProtocol | None,
+        PluginMiddlewareExecutorProtocol | None,
+    ]:
         command_executor: PluginExecutorProtocol | None = None
         if not self._commands:
             command_executor = None
@@ -536,7 +576,11 @@ class ApplicationPluginSetupContext:
         event_executor: PluginEventExecutorProtocol | None = None
         if self._events:
             event_executor = _PluginEventRouter(self._event_executors)
-        return command_executor, event_executor
+
+        middleware_executor: PluginMiddlewareExecutorProtocol | None = None
+        if self._middlewares:
+            middleware_executor = _PluginMiddlewareRouter(self._middleware_executors)
+        return command_executor, event_executor, middleware_executor
 
     def _ensure_capability(self, capability: PluginCapability) -> None:
         if capability not in self._manifest.capabilities:
@@ -579,6 +623,19 @@ class ApplicationPluginSetupContext:
             return
         self._events.append(definition)
 
+    def _register_middleware_definition(
+        self,
+        definition: PluginMiddlewareDefinition,
+    ) -> None:
+        existing_names = {
+            _normalize_middleware_type(middleware.middleware_type)
+            for middleware in self._middlewares
+        }
+        definition_name = _normalize_middleware_type(definition.middleware_type)
+        if definition_name in existing_names:
+            return
+        self._middlewares.append(definition)
+
 
 class _PluginCommandRouter:
     def __init__(self, executors: dict[str, PluginExecutorProtocol]) -> None:
@@ -603,6 +660,21 @@ class _PluginEventRouter:
         return await executor.execute(request)
 
 
+class _PluginMiddlewareRouter:
+    def __init__(
+        self,
+        executors: dict[str, PluginMiddlewareExecutorProtocol],
+    ) -> None:
+        self._executors = executors
+
+    async def execute(self, request: PluginMiddlewareRequest, next_call):
+        middleware_name = _normalize_middleware_type(request.route.middleware_type)
+        executor = self._executors.get(middleware_name)
+        if executor is None:
+            raise PluginNotFoundError(f"插件中间件 {middleware_name} 不存在")
+        return await executor.execute(request, next_call)
+
+
 def _command_names(definition: PluginCommandDefinition) -> set[str]:
     names = {_normalize_command_name(definition.name)}
     names.update(_normalize_command_name(alias) for alias in definition.aliases)
@@ -619,6 +691,10 @@ def _normalize_task_name(name: str) -> str:
 
 def _normalize_event_type(event_type: object) -> str:
     return str(event_type).strip().lower()
+
+
+def _normalize_middleware_type(middleware_type: object) -> str:
+    return str(middleware_type).strip().lower()
 
 
 def _text_message(role: MessageRole, text: str) -> Message:
@@ -645,18 +721,57 @@ def _chat_result_text(result: ApplicationChatResult) -> str:
 
 
 def _request_metadata_str(
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
     key: str,
 ) -> str | None:
+    if isinstance(request, PluginMiddlewareRequest):
+        value = getattr(request.chat_request, key, None)
+        if isinstance(value, str) and value:
+            return value
+        value = request.chat_request.metadata.get(key)
+        if isinstance(value, str) and value:
+            return value
+        value = request.metadata.get(key)
+        if isinstance(value, str) and value:
+            return value
+        return None
     value = request.metadata.get(key)
     if isinstance(value, str) and value:
         return value
     return None
 
 
+def _request_metadata(
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
+) -> dict[str, object]:
+    if isinstance(request, PluginMiddlewareRequest):
+        return {
+            **request.chat_request.metadata,
+            **request.metadata,
+        }
+    return dict(request.metadata)
+
+
 def _request_session_id(
-    request: PluginCommandRequest | PluginTaskRequest | PluginEventRequest,
+    request: (
+        PluginCommandRequest
+        | PluginTaskRequest
+        | PluginEventRequest
+        | PluginMiddlewareRequest
+    ),
 ) -> str | None:
+    if isinstance(request, PluginMiddlewareRequest):
+        return _request_metadata_str(request, "session_id")
     if isinstance(request, PluginCommandRequest) and request.event is not None:
         return request.event.session_id
     if isinstance(request, PluginEventRequest):

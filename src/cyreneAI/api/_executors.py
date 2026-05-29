@@ -12,6 +12,7 @@ from cyreneAI.api._replies import _coerce_command_handler_result
 from cyreneAI.api._types import (
     PluginCommandHandler,
     PluginEventHandler,
+    PluginMiddlewareHandler,
     PluginTaskHandler,
 )
 from cyreneAI.core.errors.plugin import PluginError, PluginExecutionError
@@ -21,6 +22,7 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandResult,
     PluginEventRequest,
     PluginEventResult,
+    PluginMiddlewareRequest,
     PluginTaskRequest,
     PluginTaskResult,
 )
@@ -154,4 +156,45 @@ class _EventHandlerExecutor:
             raise PluginExecutionError(
                 f"插件事件 {request.route.event_type} 必须返回 PluginEventResult 或 None"
             )
+        return result
+
+
+class _MiddlewareHandlerExecutor:
+    def __init__(
+        self,
+        handler: PluginMiddlewareHandler,
+        runtime_context: Any,
+    ) -> None:
+        self._handler = handler
+        self._runtime_context = runtime_context
+        self._signature = signature(handler)
+        self._type_hints = _handler_type_hints(handler)
+        _validate_handler_signature(
+            self._signature,
+            runtime_context,
+            "插件中间件",
+            type_hints=self._type_hints,
+        )
+
+    async def execute(self, request: PluginMiddlewareRequest, next_call):
+        try:
+            args, kwargs = _build_handler_arguments(
+                self._signature,
+                request,
+                self._runtime_context,
+                type_hints=self._type_hints,
+            )
+            for name in ("next", "call_next"):
+                if name in self._signature.parameters and name not in kwargs:
+                    kwargs[name] = next_call
+            result = self._handler(*args, **kwargs)
+            if isawaitable(result):
+                result = await result
+        except PluginError:
+            raise
+        except Exception as exc:
+            raise PluginExecutionError(
+                f"插件中间件 {request.route.middleware_type} 执行失败",
+                cause=exc,
+            ) from exc
         return result

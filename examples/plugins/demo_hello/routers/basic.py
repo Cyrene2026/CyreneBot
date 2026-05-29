@@ -1,22 +1,20 @@
-from cyreneAI.api import CyreneRouter, Depends, text
+from cyreneAI.api import CyreneRouter, Depends
 
 router = CyreneRouter()
 
 
-@router.command("/hello", aliases=["hi"])
-async def hello(request, ctx):
-    """Say hello."""
-    name = request.command.args_text or "world"
+@router.command
+def hello(name: str = "world"):
     return f"Hello, {name}!"
 
 
-@router.command("/providers")
-async def providers(request, list_providers=Depends("providers")):
-    provider_names = ", ".join(provider.name for provider in list_providers())
-    return provider_names or "No providers"
+@router.command
+def providers(list_providers=Depends("providers")):
+    names = ", ".join(provider.name for provider in list_providers())
+    return names or "No providers"
 
 
-@router.command("/asset")
-async def asset(request, assets=Depends("assets")):
+@router.command
+async def asset(assets=Depends("assets")):
     content = await assets.read_text("prompts/hello.txt")
     return content.strip()

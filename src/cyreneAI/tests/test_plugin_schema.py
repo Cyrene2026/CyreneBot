@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from cyreneAI.core.schema.bot import BotCommand
+from cyreneAI.core.schema.chat import ChatRequest
+from cyreneAI.core.schema.message import Message, MessageRole
 from cyreneAI.core.schema.plugin import (
     PluginCommandArgumentDefinition,
     PluginCommandArgumentKind,
@@ -17,6 +19,9 @@ from cyreneAI.core.schema.plugin import (
     PluginEventType,
     PluginManifest,
     PluginMessageReceipt,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginPermission,
     PluginRuntimeCapabilityStatus,
     PluginRuntimeDependencyInfo,
@@ -46,6 +51,7 @@ def test_plugin_definition_defaults() -> None:
     assert definition.commands == []
     assert definition.tasks == []
     assert definition.events == []
+    assert definition.middlewares == []
     assert definition.enabled is True
     assert definition.builtin is False
     assert definition.metadata == {}
@@ -135,6 +141,25 @@ def test_plugin_event_definition_request_and_result_defaults() -> None:
     assert result.metadata == {}
 
 
+def test_plugin_middleware_definition_and_request_schema() -> None:
+    definition = PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM)
+    request = PluginMiddlewareRequest(
+        route=definition,
+        chat_request=ChatRequest(
+            provider_id="provider-1",
+            model="model",
+            messages=[Message(role=MessageRole.USER, content=[])],
+        ),
+    )
+
+    assert definition.middleware_type == PluginMiddlewareType.LLM
+    assert definition.description == ""
+    assert definition.enabled is True
+    assert definition.metadata == {}
+    assert request.route is definition
+    assert request.metadata == {}
+
+
 def test_plugin_message_receipt_defaults() -> None:
     receipt = PluginMessageReceipt(session_id="session-1")
 
@@ -182,6 +207,10 @@ def test_plugin_manifest_converts_to_definition() -> None:
         event_type=PluginEventType.MESSAGE,
         description="Observe messages.",
     )
+    middleware = PluginMiddlewareDefinition(
+        middleware_type=PluginMiddlewareType.LLM,
+        description="Trace LLM calls.",
+    )
     manifest = PluginManifest(
         plugin_id="thirdparty.hello",
         name="Hello",
@@ -197,6 +226,7 @@ def test_plugin_manifest_converts_to_definition() -> None:
         commands=[command],
         tasks=[task],
         events=[event],
+        middlewares=[middleware],
         metadata={"source": "test"},
     )
 
@@ -218,6 +248,7 @@ def test_plugin_manifest_converts_to_definition() -> None:
     assert definition.commands == [command]
     assert definition.tasks == [task]
     assert definition.events == [event]
+    assert definition.middlewares == [middleware]
     assert definition.metadata == {"source": "test"}
 
 

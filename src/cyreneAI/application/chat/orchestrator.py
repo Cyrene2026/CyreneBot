@@ -66,7 +66,7 @@ class ChatOrchestrator:
             allowed_tool_names=allowed_tool_names,
         )
         provider = self._get_chat_provider(request.provider_id)
-        response = await provider.chat(provider_request)
+        response = await self._chat_provider(provider, provider_request)
         response, tool_results = await self._run_tool_feedback_loop(
             request=request,
             provider=provider,
@@ -125,7 +125,7 @@ class ChatOrchestrator:
                 response=current_response,
                 tool_results=round_results,
             )
-            current_response = await provider.chat(current_request)
+            current_response = await self._chat_provider(provider, current_request)
 
         return current_response, tool_results
 
@@ -226,6 +226,19 @@ class ChatOrchestrator:
         if chat is None:
             raise UnsupportedError(f"Provider {provider_id} does not support chat")
         return cast(ChatProviderProtocol, provider)
+
+    async def _chat_provider(
+        self,
+        provider: ChatProviderProtocol,
+        request: ChatRequest,
+    ) -> ChatResponse:
+        plugin_manager = self._runtime.plugin_manager
+        if plugin_manager is None:
+            return await provider.chat(request)
+        return await plugin_manager.execute_llm_middlewares(
+            request,
+            provider.chat,
+        )
 
     async def _execute_tool_calls(
         self,

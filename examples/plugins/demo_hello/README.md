@@ -178,6 +178,21 @@ async def ask(request, llm=Depends("llm")):
     return await llm.chat(request.command.args_text)
 ```
 
+Plugins can register controlled middleware for LLM calls:
+
+```python
+@plugin.middleware("llm")
+async def trace(request, next):
+    response = await next(request)
+    return response
+```
+
+Middleware receives a narrow request object and an explicit `next` callable. It
+can observe or replace the `chat_request` before calling `next`, and failures are
+isolated by the host. LLM middleware runs in plugin registration order. Disabled
+plugins and disabled middleware definitions are skipped, so disabling a plugin
+also removes its middleware from the chain.
+
 Local plugin tests can run without starting the server:
 
 ```python
@@ -196,8 +211,17 @@ async def test_hello_command():
 The same test client can dispatch events and run declared tasks:
 
 ```python
-result = await client.event("message", text="hello", session_id="s1")
-task_result = await client.task("cleanup", payload={"target": "cache"})
+result = await client.event(
+    "message",
+    text="hello",
+    session_id="s1",
+    metadata={"source": "pytest"},
+)
+task_result = await client.task(
+    "cleanup",
+    payload={"target": "cache"},
+    session_id="s1",
+)
 ```
 
 Events and tasks can also infer their route names from the function:
@@ -217,6 +241,27 @@ The test client provides fake `storage`, `assets`, `messages`, and task
 `scheduler` dependencies by default. Override any dependency with
 `PluginTestClient(plugin, dependencies={...})`. Sent messages and scheduled tasks
 are available through `client.sent_messages` and `client.scheduled_tasks`.
+Command, event, task, and middleware calls accept test metadata plus
+`provider_id`, `model`, and `session_id` where they map to real runtime request
+context. This keeps LLM-dependent plugins testable without starting the server:
+
+```python
+result = await client.command(
+    "/ask hello",
+    provider_id="openai",
+    model="gpt",
+    session_id="test:user-1",
+    metadata={"source": "pytest"},
+)
+
+response = await client.llm_middleware(
+    "hello",
+    final_chat,
+    provider_id="openai",
+    model="gpt",
+    session_id="test:user-1",
+)
+```
 
 Pytest fixtures keep plugin tests compact:
 

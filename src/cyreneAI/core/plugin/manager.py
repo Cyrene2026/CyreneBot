@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.errors.plugin import (
@@ -9,6 +10,7 @@ from cyreneAI.core.errors.plugin import (
     PluginExecutionError,
 )
 from cyreneAI.core.plugin.plugin_protocol import PluginRegistryProtocol
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
 from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginCommandRequest,
@@ -18,6 +20,9 @@ from cyreneAI.core.schema.plugin import (
     PluginEventDefinition,
     PluginEventRequest,
     PluginEventResult,
+    PluginMiddlewareDefinition,
+    PluginMiddlewareRequest,
+    PluginMiddlewareType,
     PluginStatusReport,
     PluginTaskDefinition,
 )
@@ -73,6 +78,18 @@ class PluginManager:
             return []
         return [task for task in definition.tasks if task.enabled]
 
+    def list_plugin_middlewares(
+        self,
+        plugin_id: str,
+    ) -> list[PluginMiddlewareDefinition]:
+        """
+        列出单个插件的已启用中间件。
+        """
+        definition = self.get_plugin(plugin_id)
+        if not definition.enabled:
+            return []
+        return [middleware for middleware in definition.middlewares if middleware.enabled]
+
     def get_plugin_status(self, plugin_id: str) -> PluginStatusReport:
         """
         获取单个插件生命周期状态。
@@ -100,6 +117,12 @@ class PluginManager:
         列出插件任务。
         """
         return self._registry.list_tasks()
+
+    def list_middlewares(self) -> list[PluginMiddlewareDefinition]:
+        """
+        列出插件中间件。
+        """
+        return self._registry.list_middlewares()
 
     def list_statuses(self) -> list[PluginStatusReport]:
         """
@@ -177,3 +200,52 @@ class PluginManager:
                     cause=exc,
                 ) from exc
         return results
+
+    async def execute_llm_middlewares(
+        self,
+        chat_request: ChatRequest,
+        next_call: Callable[[ChatRequest], Awaitable[ChatResponse]],
+    ) -> ChatResponse:
+        """
+        执行 LLM 中间件链。
+        """
+        middlewares = self._registry.resolve_middlewares(PluginMiddlewareType.LLM)
+
+        async def call_at(index: int, current_request: ChatRequest) -> ChatResponse:
+            if index >= len(middlewares):
+                return await next_call(current_request)
+
+            plugin_definition, middleware_definition, executor = middlewares[index]
+
+            async def call_next(
+                middleware_request: PluginMiddlewareRequest,
+            ) -> ChatResponse:
+                return await call_at(index + 1, middleware_request.chat_request)
+
+            try:
+                return await executor.execute(
+                    PluginMiddlewareRequest(
+                        route=middleware_definition,
+                        chat_request=current_request,
+                        metadata={
+                            "plugin_id": plugin_definition.plugin_id,
+                        },
+                    ),
+                    call_next,
+                )
+            except PluginError:
+                raise
+            except CyreneAIError:
+                raise
+            except Exception as exc:
+                logger.exception(
+                    "Plugin middleware failed: plugin_id=%s middleware_type=%s",
+                    plugin_definition.plugin_id,
+                    middleware_definition.middleware_type,
+                )
+                raise PluginExecutionError(
+                    f"插件中间件 {middleware_definition.middleware_type} 执行失败",
+                    cause=exc,
+                ) from exc
+
+        return await call_at(0, chat_request)

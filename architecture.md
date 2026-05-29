@@ -76,6 +76,8 @@ server
 
 `cyreneAI.api` 是面向插件开发者的 Python API。它负责让插件以普通 Python 代码声明命令、任务、事件、依赖和本地测试；命令 handler 可以用普通函数参数接收命令参数，未标注类型且无默认值的业务参数按文本解析，未标注类型但有默认值的参数会按默认值推断类型，`str`、`int`、`float`、`bool` 注解可以显式控制解析类型，`Rest[str]` 可以显式消费剩余命令文本，`Option[T]` 和 `Flag` 可以声明 `--limit 5`、`--verbose` 这类 CLI 参数，也可以用 `Depends(...)` 声明宿主能力。命令函数签名会生成 usage 和 `PluginCommandDefinition.arguments` 参数契约，供测试、管理接口和后续文档使用。`api/plugin.py` 只保留兼容 facade，内部实现按依赖、参数、回复、执行器、路由和类型别名拆到私有模块。`cyreneAI.api` 不负责启动 runtime、不负责装配 infra、不负责 HTTP 通信。HTTP 对外通信仍属于 `server`。
 
+插件系统的设计原则是：配置权和页面权归插件作者，框架只提供入口与能力。配置不是框架运行契约，而是插件作者管理自身行为的工具；插件可以选择常量、环境变量、JSON、TOML、YAML、Pydantic、dataclass 或命令式管理方式。框架不要求 `_conf_schema.json` 这类前端表单 schema，也不把前端渲染细节作为插件发布约束。若未来提供插件设置页能力，也应是插件显式注册的 settings/page 入口，由插件 handler 读取输入、修改状态并返回 HTML/Response 或重定向；页面结构、CSS、静态资源和交互方式由插件作者决定，宿主只负责路由、权限、依赖注入、资源托管和错误隔离。
+
 ## 真实运行架构
 
 单张“分层图”很容易把系统画平。CyreneBot 实际上有三条主线：模块边界、启动装配、请求运行时。
@@ -448,7 +450,7 @@ uv run pytest src\cyreneAI\tests
 
 ```text
 compileall 通过
-537 passed, 6 skipped
+551 passed, 6 skipped
 ```
 
 ## 扩展落点
