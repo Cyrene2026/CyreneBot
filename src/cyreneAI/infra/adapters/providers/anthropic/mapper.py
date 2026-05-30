@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
 from cyreneAI.core.schema.message import (
@@ -152,7 +152,7 @@ def map_tool_choice(tool_choice: ToolChoice | None) -> dict[str, Any] | None:
 
 
 def map_anthropic_response(provider_id: str, response: Any) -> ChatResponse:
-    content = getattr(response, "content", None) or []
+    content = cast(list[Any], getattr(response, "content", None) or [])
     text = map_response_text(content)
     tool_calls = [
         tool_call
@@ -189,11 +189,11 @@ def map_anthropic_response(provider_id: str, response: Any) -> ChatResponse:
 
 
 def map_response_text(content: list[Any]) -> str | None:
-    texts = [
-        getattr(block, "text", None)
-        for block in content
-        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
-    ]
+    texts: list[str] = []
+    for block in content:
+        text = getattr(block, "text", None)
+        if getattr(block, "type", None) == "text" and isinstance(text, str) and text:
+            texts.append(text)
     if not texts:
         return None
     return "\n".join(texts)

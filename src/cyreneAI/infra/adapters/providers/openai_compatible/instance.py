@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncOpenAI
 from cyreneAI.infra.adapters.providers.openai_compatible.errors import (
@@ -50,7 +50,10 @@ class OpenAICompatibleProviderInstance:
                 request,
                 include_reasoning_content=_is_deepseek_provider(self.config),
             )
-            response = await self._client.chat.completions.create(**payload)
+            response = cast(
+                Any,
+                await self._client.chat.completions.create(**payload),
+            )
             return map_chat_response(
                 provider_id=self.config.provider_id,
                 response=response,
@@ -61,7 +64,7 @@ class OpenAICompatibleProviderInstance:
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         try:
             payload = map_embedding_request(request)
-            response = await self._client.embeddings.create(**payload)
+            response: Any = await self._client.embeddings.create(**payload)
             return map_embedding_response(
                 provider_id=self.config.provider_id,
                 response=response,
@@ -82,7 +85,7 @@ class OpenAICompatibleProviderInstance:
 
 
 def _is_deepseek_provider(config: ProviderConfig) -> bool:
-    values = [
+    values: list[Any] = [
         config.provider_id,
         config.base_url,
         *config.metadata.keys(),

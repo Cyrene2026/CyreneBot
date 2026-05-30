@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.schema.chat import (
     ChatFinishReason,
@@ -134,7 +134,7 @@ def map_tool_choice(tool_choice: ToolChoice | None) -> str | dict[str, Any] | No
 
 
 def map_responses_response(provider_id: str, response: Any) -> ChatResponse:
-    output = getattr(response, "output", None) or []
+    output = cast(list[Any], getattr(response, "output", None) or [])
     tool_calls = [
         tool_call
         for tool_call in (map_tool_call(item) for item in output)
@@ -176,9 +176,9 @@ def map_output_text(output: list[Any]) -> str | None:
         if getattr(item, "type", None) != "message":
             continue
 
-        for content in getattr(item, "content", None) or []:
+        for content in cast(list[Any], getattr(item, "content", None) or []):
             text = getattr(content, "text", None)
-            if text:
+            if isinstance(text, str) and text:
                 texts.append(text)
 
     if not texts:
@@ -244,7 +244,7 @@ def map_image_generation_response(
     model: str,
     response: Any,
 ) -> ImageGenerationResponse:
-    data = getattr(response, "data", None) or []
+    data = cast(list[Any], getattr(response, "data", None) or [])
     return ImageGenerationResponse(
         provider_id=provider_id,
         model=model,

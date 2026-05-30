@@ -139,7 +139,8 @@ def map_reasoning_content(message: Message) -> str | None:
     if not isinstance(metadata, dict):
         return None
 
-    reasoning_content = metadata.get("reasoning_content")
+    metadata_data = cast(dict[str, Any], metadata)
+    reasoning_content = metadata_data.get("reasoning_content")
     return reasoning_content if isinstance(reasoning_content, str) else None
 
 
@@ -303,14 +304,14 @@ def normalize_response_content(content: Any) -> str | None:
     if isinstance(content, str):
         return content
     if isinstance(content, dict):
-        text = content.get("text")
+        text = cast(dict[str, Any], content).get("text")
         return str(text) if text is not None else None
     if isinstance(content, list):
         texts: list[str] = []
-        for part in content:
+        for part in cast(list[Any], content):
             text = None
             if isinstance(part, dict):
-                text = part.get("text")
+                text = cast(dict[str, Any], part).get("text")
             else:
                 text = getattr(part, "text", None)
             if text is not None:

@@ -20,7 +20,7 @@ from openai import (
     WebSocketQueueFullError as OpenAIWebSocketQueueFullError,
 )
 import json
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 from cyreneAI.core.errors.provider import (
     ProviderError,
     ProviderUnavailableError,
@@ -166,11 +166,13 @@ def _error_text_candidates(exc: Exception) -> list[str]:
     append(str(exc))
     body = getattr(exc, "body", None)
     if isinstance(body, dict):
-        append(_safe_json_dump(body))
-        error = body.get("error")
+        body_data = cast(dict[str, Any], body)
+        append(_safe_json_dump(body_data))
+        error = body_data.get("error")
         if isinstance(error, dict):
+            error_data = cast(dict[str, Any], error)
             for field in ("message", "type", "code", "param"):
-                append(error.get(field))
+                append(error_data.get(field))
     else:
         append(body)
 

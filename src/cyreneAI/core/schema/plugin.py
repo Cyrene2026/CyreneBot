@@ -186,7 +186,7 @@ class PluginCommandDefinition(PluginBase):
     name: str
     description: str
     usage: str | None = None
-    arguments: list[PluginCommandArgumentDefinition] = Field(default_factory=list)
+    arguments: list[PluginCommandArgumentDefinition] = []
     aliases: list[str] = Field(default_factory=list)
     admin_required: bool = False
     enabled: bool = True
@@ -243,12 +243,12 @@ class PluginDefinition(PluginBase):
     homepage: str | None = None
     repository: str | None = None
     keywords: list[str] = Field(default_factory=list)
-    capabilities: list[PluginCapability] = Field(default_factory=list)
-    permissions: list[PluginPermission] = Field(default_factory=list)
-    commands: list[PluginCommandDefinition] = Field(default_factory=list)
-    tasks: list[PluginTaskDefinition] = Field(default_factory=list)
-    events: list[PluginEventDefinition] = Field(default_factory=list)
-    middlewares: list[PluginMiddlewareDefinition] = Field(default_factory=list)
+    capabilities: list[PluginCapability] = []
+    permissions: list[PluginPermission] = []
+    commands: list[PluginCommandDefinition] = []
+    tasks: list[PluginTaskDefinition] = []
+    events: list[PluginEventDefinition] = []
+    middlewares: list[PluginMiddlewareDefinition] = []
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -341,12 +341,12 @@ class PluginManifest(PluginBase):
     homepage: str | None = None
     repository: str | None = None
     keywords: list[str] = Field(default_factory=list)
-    capabilities: list[PluginCapability] = Field(default_factory=list)
-    permissions: list[PluginPermission] = Field(default_factory=list)
-    commands: list[PluginCommandDefinition] = Field(default_factory=list)
-    tasks: list[PluginTaskDefinition] = Field(default_factory=list)
-    events: list[PluginEventDefinition] = Field(default_factory=list)
-    middlewares: list[PluginMiddlewareDefinition] = Field(default_factory=list)
+    capabilities: list[PluginCapability] = []
+    permissions: list[PluginPermission] = []
+    commands: list[PluginCommandDefinition] = []
+    tasks: list[PluginTaskDefinition] = []
+    events: list[PluginEventDefinition] = []
+    middlewares: list[PluginMiddlewareDefinition] = []
     enabled: bool = True
     builtin: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -456,7 +456,7 @@ class PluginEventResult(PluginBase):
     """
 
     handled: bool = True
-    actions: list[BotAction] = Field(default_factory=list)
+    actions: list[BotAction] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -487,5 +487,5 @@ class PluginCommandResult(PluginBase):
     """
 
     handled: bool = True
-    actions: list[BotAction] = Field(default_factory=list)
+    actions: list[BotAction] = []
     metadata: dict[str, Any] = Field(default_factory=dict)

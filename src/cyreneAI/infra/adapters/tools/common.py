@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.errors.tool import ToolInputError
 from cyreneAI.core.schema.tool import ToolCall, ToolResult
@@ -23,7 +23,7 @@ def parse_tool_arguments(arguments: str | None) -> dict[str, Any]:
 
     if not isinstance(parsed, dict):
         raise ToolInputError("Tool arguments must be a JSON object")
-    return parsed
+    return cast(dict[str, Any], parsed)
 
 
 def map_tool_result(
@@ -93,7 +93,7 @@ def map_json_text_tool_result(call: ToolCall, text: str) -> ToolResult:
         return map_tool_result(call, stripped)
 
     if isinstance(parsed, dict):
-        return map_tool_result_object(call, parsed)
+        return map_tool_result_object(call, cast(dict[str, Any], parsed))
     return map_tool_result(call, stripped)
 
 

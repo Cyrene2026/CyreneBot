@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.errors.bot import BotActionError, BotInputError
 from cyreneAI.core.schema.bot import (
@@ -31,27 +31,30 @@ def map_telegram_update_to_bot_event(
             session_id=f"{channel_id}:unknown:{update_id}",
             metadata={"telegram_update_id": update_id},
         )
+    message_data = cast(dict[str, Any], message)
 
-    chat = message.get("chat")
+    chat: Any = message_data.get("chat")
     if not isinstance(chat, dict) or chat.get("id") is None:
         raise BotInputError("Telegram message update must include chat.id")
+    chat_data = cast(dict[str, Any], chat)
 
-    chat_id = str(chat["id"])
-    sender = message.get("from")
+    chat_id = str(chat_data["id"])
+    sender: Any = message_data.get("from")
+    sender_data = cast(dict[str, Any], sender) if isinstance(sender, dict) else None
     user_id = (
-        str(sender["id"])
-        if isinstance(sender, dict) and sender.get("id") is not None
+        str(sender_data["id"])
+        if sender_data is not None and sender_data.get("id") is not None
         else None
     )
-    text = _message_text(message)
+    text = _message_text(message_data)
     event_type = (
         BotEventType.COMMAND
         if text is not None and text.strip().startswith("/")
         else BotEventType.MESSAGE
     )
     message_id = (
-        str(message["message_id"])
-        if message.get("message_id") is not None
+        str(message_data["message_id"])
+        if message_data.get("message_id") is not None
         else None
     )
 
@@ -73,13 +76,13 @@ def map_telegram_update_to_bot_event(
             ],
             metadata={
                 "telegram_chat_id": chat_id,
-                "telegram_chat_type": str(chat.get("type") or ""),
+                "telegram_chat_type": str(chat_data.get("type") or ""),
             },
         ),
         metadata={
             "telegram_update_id": update_id,
             "telegram_chat_id": chat_id,
-            "telegram_chat_type": str(chat.get("type") or ""),
+            "telegram_chat_type": str(chat_data.get("type") or ""),
         },
     )
 

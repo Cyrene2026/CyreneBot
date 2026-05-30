@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from anthropic import AsyncAnthropic
 
@@ -38,7 +38,7 @@ class AnthropicProviderInstance:
     async def chat(self, request: ChatRequest) -> ChatResponse:
         try:
             payload = map_anthropic_request(request)
-            response = await self._client.messages.create(**payload)
+            response = cast(Any, await self._client.messages.create(**payload))
             return map_anthropic_response(
                 provider_id=self.config.provider_id,
                 response=response,

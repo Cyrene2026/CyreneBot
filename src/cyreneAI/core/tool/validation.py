@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.errors.tool import ToolInputError
 from cyreneAI.core.schema.tool import ToolCall, ToolDefinition
@@ -38,7 +38,7 @@ def _parse_tool_arguments(arguments: str | None) -> dict[str, Any]:
 
     if not isinstance(parsed, dict):
         raise ToolInputError("Tool arguments must be a JSON object")
-    return parsed
+    return cast(dict[str, Any], parsed)
 
 
 def _validate_json_schema_value(
@@ -52,7 +52,7 @@ def _validate_json_schema_value(
         _validate_type(value=value, expected_type=expected_type, path=path)
 
     enum_values = schema.get("enum")
-    if enum_values is not None and value not in enum_values:
+    if isinstance(enum_values, list) and value not in enum_values:
         raise ToolInputError(f"{path} must be one of {enum_values!r}")
 
     if expected_type == "object" or "properties" in schema or "required" in schema:
@@ -69,17 +69,24 @@ def _validate_type(
     expected_type: Any,
     path: str,
 ) -> None:
-    expected_types = (
-        expected_type
-        if isinstance(expected_type, list)
-        else [expected_type]
-    )
+    if isinstance(expected_type, str):
+        expected_types = [expected_type]
+    elif isinstance(expected_type, list):
+        expected_types = [
+            item
+            for item in cast(list[Any], expected_type)
+            if isinstance(item, str)
+        ]
+    else:
+        return
+    if not expected_types:
+        return
     if any(_matches_type(value, candidate) for candidate in expected_types):
         return
     raise ToolInputError(f"{path} has invalid type")
 
 
-def _matches_type(value: Any, expected_type: Any) -> bool:
+def _matches_type(value: Any, expected_type: str) -> bool:
     if expected_type == "object":
         return isinstance(value, dict)
     if expected_type == "array":
@@ -105,26 +112,37 @@ def _validate_object(
 ) -> None:
     if not isinstance(value, dict):
         raise ToolInputError(f"{path} must be a JSON object")
+    value_object = cast(dict[str, Any], value)
 
-    required = schema.get("required") or []
+    required: list[str] = []
+    raw_required = schema.get("required")
+    if isinstance(raw_required, list):
+        required = [
+            key
+            for key in cast(list[Any], raw_required)
+            if isinstance(key, str)
+        ]
     for key in required:
-        if key not in value:
+        if key not in value_object:
             raise ToolInputError(f"{path}.{key} is required")
 
-    properties = schema.get("properties") or {}
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+    property_schemas = cast(dict[str, Any], properties)
     if schema.get("additionalProperties") is False:
-        unexpected_keys = sorted(set(value) - set(properties))
+        unexpected_keys = sorted(set(value_object) - set(property_schemas))
         if unexpected_keys:
             raise ToolInputError(
                 f"{path} has unexpected properties: {', '.join(unexpected_keys)}"
             )
 
-    for key, property_schema in properties.items():
-        if key not in value or not isinstance(property_schema, dict):
+    for key, property_schema in property_schemas.items():
+        if key not in value_object or not isinstance(property_schema, dict):
             continue
         _validate_json_schema_value(
-            value=value[key],
-            schema=property_schema,
+            value=value_object[key],
+            schema=cast(dict[str, Any], property_schema),
             path=f"{path}.{key}",
         )
 
@@ -137,12 +155,13 @@ def _validate_array(
 ) -> None:
     if not isinstance(value, list):
         raise ToolInputError(f"{path} must be a JSON array")
+    values = cast(list[Any], value)
 
     item_schema = schema.get("items")
     if not isinstance(item_schema, dict):
         return
 
-    for index, item in enumerate(value):
+    for index, item in enumerate(values):
         _validate_json_schema_value(
             value=item,
             schema=item_schema,

@@ -105,8 +105,8 @@ class PluginOperationResult(CyreneAISchema):
 
 
 class PluginInstallReport(CyreneAISchema):
-    installed: list[PluginDefinition] = Field(default_factory=list)
-    sources: list[PluginSourceInfo] = Field(default_factory=list)
+    installed: list[PluginDefinition] = []
+    sources: list[PluginSourceInfo] = []
 
 
 class PluginInspectionReport(CyreneAISchema):
@@ -143,7 +143,7 @@ class PluginTaskInstancesReport(CyreneAISchema):
 
 
 class PluginPermissionAuditReport(CyreneAISchema):
-    records: list[PluginPermissionAuditRecord] = Field(default_factory=list)
+    records: list[PluginPermissionAuditRecord] = []
 
 
 __all__ = [

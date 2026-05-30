@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from cyreneAI.application.runtime import CyreneAIRuntime
@@ -16,10 +18,10 @@ router = APIRouter(
 @router.get("")
 async def list_providers(
     runtime: CyreneAIRuntime = Depends(get_runtime),
-) -> dict[str, list[dict]]:
+) -> dict[str, list[dict[str, Any]]]:
     return {
         "providers": [
-            info.model_dump(mode="json")
+            cast(dict[str, Any], info.model_dump(mode="json"))
             for info in runtime.provider_manager.list_running()
         ]
     }
@@ -29,14 +31,14 @@ async def list_providers(
 async def list_provider_models(
     provider_id: str,
     runtime: CyreneAIRuntime = Depends(get_runtime),
-) -> dict[str, list[dict]]:
+) -> dict[str, list[dict[str, Any]]]:
     try:
         models = await runtime.provider_manager.list_models(provider_id)
     except CyreneAIError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "models": [
-            model.model_dump(mode="json")
+            cast(dict[str, Any], model.model_dump(mode="json"))
             for model in models
         ]
     }

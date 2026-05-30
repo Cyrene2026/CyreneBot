@@ -60,7 +60,7 @@ class SkillInstructionBundle(CyreneAISchema):
     技能提示词集合schema
     """
 
-    instructions: list[SkillInstruction] = Field(default_factory=list)
+    instructions: list[SkillInstruction] = []
     allowed_tools: list[str] = Field(default_factory=list)
     required_context: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

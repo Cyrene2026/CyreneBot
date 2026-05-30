@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncOpenAI
 
@@ -41,7 +41,7 @@ class OpenAIResponsesProviderInstance:
     async def chat(self, request: ChatRequest) -> ChatResponse:
         try:
             payload = map_responses_request(request)
-            response = await self._client.responses.create(**payload)
+            response = cast(Any, await self._client.responses.create(**payload))
             return map_responses_response(
                 provider_id=self.config.provider_id,
                 response=response,
@@ -66,7 +66,7 @@ class OpenAIResponsesProviderInstance:
     ) -> ImageGenerationResponse:
         try:
             payload = map_image_generation_request(request)
-            response = await self._client.images.generate(**payload)
+            response = cast(Any, await self._client.images.generate(**payload))
             return map_image_generation_response(
                 provider_id=self.config.provider_id,
                 model=request.model,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -105,7 +105,11 @@ class TelegramBotClient:
         updates = result.get("result")
         if not isinstance(updates, list):
             return []
-        return [update for update in updates if isinstance(update, dict)]
+        return [
+            cast(dict[str, Any], update)
+            for update in cast(list[Any], updates)
+            if isinstance(update, dict)
+        ]
 
     async def request(
         self,
@@ -121,15 +125,16 @@ class TelegramBotClient:
             if not isinstance(body, dict):
                 response.raise_for_status()
                 raise TelegramBotAPIError("Telegram response body must be an object")
-            if body.get("ok") is not True:
+            response_body = cast(dict[str, Any], body)
+            if response_body.get("ok") is not True:
                 raise TelegramBotAPIError(
-                    str(body.get("description") or "Telegram request failed"),
-                    error_code=body.get("error_code"),
-                    payload=body,
+                    str(response_body.get("description") or "Telegram request failed"),
+                    error_code=response_body.get("error_code"),
+                    payload=response_body,
                 )
             response.raise_for_status()
-            result = body.get("result")
-            return result if isinstance(result, dict) else {"result": result}
+            result: Any = response_body.get("result")
+            return cast(dict[str, Any], result) if isinstance(result, dict) else {"result": result}
         except Exception as exc:
             raise_telegram_error(exc)
 

@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 from google import genai
+from google.genai.types import HttpOptionsDict
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError
 from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
@@ -35,12 +36,13 @@ class GoogleGenAIProviderInstance:
         self.config = config
         self.info = info
         self.timeout = config.timeout.total_seconds() if config.timeout else None
-        http_options = None
+        http_options: HttpOptionsDict | None = None
         if config.base_url is not None or self.timeout is not None:
-            http_options = {
-                "base_url": config.base_url,
-                "timeout": int(self.timeout * 1000) if self.timeout is not None else None,
-            }
+            http_options = {}
+            if config.base_url is not None:
+                http_options["base_url"] = config.base_url
+            if self.timeout is not None:
+                http_options["timeout"] = int(self.timeout * 1000)
         self._client = client or genai.Client(
             api_key=config.api_key,
             http_options=http_options,

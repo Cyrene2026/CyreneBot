@@ -59,7 +59,7 @@ class ApplicationChatRequest(CyreneAISchema):
     context_budget: ContextBudget | None = None
     required_skill_names: list[str] = Field(default_factory=list)
     max_skills: int | None = None
-    additional_context_segments: list[ContextSegment] = Field(default_factory=list)
+    additional_context_segments: list[ContextSegment] = []
 
     temperature: float | None = None
     max_tokens: int | None = None
@@ -79,7 +79,7 @@ class ApplicationChatResult(CyreneAISchema):
     response: ChatResponse
     context_snapshot: ContextSnapshot
     skill_bundle: SkillInstructionBundle | None = None
-    tool_results: list[ToolResult] = Field(default_factory=list)
+    tool_results: list[ToolResult] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -155,8 +155,8 @@ class ApplicationIndexingResult(CyreneAISchema):
     应用索引结果
     """
 
-    chunks: list[DocumentChunk] = Field(default_factory=list)
-    records: list[VectorRecord] = Field(default_factory=list)
+    chunks: list[DocumentChunk] = []
+    records: list[VectorRecord] = []
     embedding_response: EmbeddingResponse
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -192,7 +192,7 @@ class ApplicationVectorUpsertRequest(CyreneAISchema):
     应用向量写入请求
     """
 
-    records: list[VectorRecord] = Field(default_factory=list)
+    records: list[VectorRecord] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -262,9 +262,9 @@ class ApplicationBotResult(CyreneAISchema):
     应用 bot 结果。
     """
 
-    actions: list[BotAction] = Field(default_factory=list)
+    actions: list[BotAction] = []
     chat_result: ApplicationChatResult | None = None
-    tool_results: list[ToolResult] = Field(default_factory=list)
+    tool_results: list[ToolResult] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -274,7 +274,7 @@ class ApplicationBotDispatchResult(CyreneAISchema):
     """
 
     bot_result: ApplicationBotResult
-    sent_actions: list[BotAction] = Field(default_factory=list)
+    sent_actions: list[BotAction] = []
     session_state: BotConversationState | None = None
 
 
@@ -283,7 +283,7 @@ class ApplicationChannelEventsRequest(CyreneAISchema):
     应用 channel 事件批处理请求。
     """
 
-    events: list[BotEvent] = Field(default_factory=list)
+    events: list[BotEvent] = []
     provider_id: str
     model: str
 
@@ -306,7 +306,7 @@ class ApplicationChannelEventsResult(CyreneAISchema):
     应用 channel 事件批处理结果。
     """
 
-    dispatch_results: list[ApplicationBotDispatchResult] = Field(default_factory=list)
+    dispatch_results: list[ApplicationBotDispatchResult] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from cyreneAI.core.schema.skill import (
     SkillDefinition,
     SkillInstruction,
@@ -99,7 +101,7 @@ def build_skill_instruction_bundle(
     )
 
 
-def _deduplicate(values) -> list[str]:
+def _deduplicate(values: Iterable[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:

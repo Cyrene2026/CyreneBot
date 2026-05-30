@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import Callable
+from typing import Any
 
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.errors.base import CyreneAIError
@@ -77,7 +78,7 @@ class ApplicationPluginOutbox:
                 return rate_limited
 
         session = state.session
-        message_metadata = {
+        message_metadata: dict[str, Any] = {
             "plugin_id": plugin_id,
             **(metadata or {}),
         }

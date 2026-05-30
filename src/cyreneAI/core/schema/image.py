@@ -42,5 +42,5 @@ class ImageGenerationResponse(CyreneAISchema):
 
     provider_id: str
     model: str | None = None
-    images: list[GeneratedImage] = Field(default_factory=list)
+    images: list[GeneratedImage] = []
     raw: dict[str, Any] | None = None

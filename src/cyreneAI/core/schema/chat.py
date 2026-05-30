@@ -50,7 +50,7 @@ class ChatResponse(CyreneAISchema):
     model: str | None = None
 
     message: Message | None = None
-    tool_calls: list[ToolCall] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = []
 
     finish_reason: ChatFinishReason = ChatFinishReason.UNKNOWN
     usage: TokenUsage | None = None

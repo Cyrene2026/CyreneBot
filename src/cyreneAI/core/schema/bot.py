@@ -54,7 +54,7 @@ class BotMessage(BotBase):
 
     message_id: str | None = None
     sender_id: str | None = None
-    content: list[ContentPart] = Field(default_factory=list)
+    content: list[ContentPart] = []
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

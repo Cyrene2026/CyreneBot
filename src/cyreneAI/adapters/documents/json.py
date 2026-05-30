@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.schema.document import Document
 
@@ -60,14 +60,15 @@ class JsonDocumentLoader:
         return documents
 
     def _load_json_records(self) -> list[dict[str, Any]]:
-        payload = json.loads(_read_text(self._path, encoding=self._encoding))
+        payload: Any = json.loads(_read_text(self._path, encoding=self._encoding))
         payload = _resolve_root_path(payload, self._root_path)
         if isinstance(payload, dict):
-            return [payload]
+            return [cast(dict[str, Any], payload)]
         if isinstance(payload, list):
+            items = cast(list[Any], payload)
             return [
-                item
-                for item in payload
+                cast(dict[str, Any], item)
+                for item in items
                 if isinstance(item, dict)
             ]
         raise ValueError("JSON document payload must be an object or list of objects")
@@ -80,10 +81,10 @@ class JsonDocumentLoader:
         ):
             if not line.strip():
                 continue
-            record = json.loads(line)
+            record: Any = json.loads(line)
             if not isinstance(record, dict):
                 raise ValueError(f"JSONL line {line_number} must be an object")
-            records.append(record)
+            records.append(cast(dict[str, Any], record))
         return records
 
     def _record_to_document(
@@ -122,10 +123,10 @@ def _resolve_root_path(payload: Any, root_path: list[str | int]) -> Any:
     current = payload
     for part in root_path:
         if isinstance(current, dict) and isinstance(part, str):
-            current = current[part]
+            current = cast(dict[str, Any], current)[part]
             continue
         if isinstance(current, list) and isinstance(part, int):
-            current = current[part]
+            current = cast(list[Any], current)[part]
             continue
         raise ValueError(f"Cannot resolve JSON root path at {part!r}")
     return current
@@ -136,7 +137,7 @@ def _get_field(record: dict[str, Any], field: str) -> Any:
     for part in field.split("."):
         if not isinstance(current, dict) or part not in current:
             return None
-        current = current[part]
+        current = cast(dict[str, Any], current)[part]
     return current
 
 

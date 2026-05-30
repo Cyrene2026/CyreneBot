@@ -1,0 +1,20 @@
+{
+  "include": [
+    "src/cyreneAI/adapters",
+    "src/cyreneAI/api",
+    "src/cyreneAI/application",
+    "src/cyreneAI/bootstrap.py",
+    "src/cyreneAI/core",
+    "src/cyreneAI/infra",
+    "src/cyreneAI/server"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv/"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "reportMissingImports": "error",
+  "reportUnknownVariableType": "warning",
+  "reportMissingTypeStubs": "warning"
+}

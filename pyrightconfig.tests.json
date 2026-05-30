@@ -1,0 +1,23 @@
+{
+  "include": [
+    "src/cyreneAI/tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv/"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportUnknownVariableType": "none",
+  "reportMissingTypeStubs": "none",
+  "reportArgumentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportOperatorIssue": "none",
+  "reportReturnType": "none"
+}

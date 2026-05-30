@@ -45,5 +45,5 @@ class VectorSearchResult(CyreneAISchema):
     向量检索结果schema
     """
 
-    matches: list[VectorSearchMatch] = Field(default_factory=list)
+    matches: list[VectorSearchMatch] = []
     metadata: dict[str, Any] = Field(default_factory=dict)

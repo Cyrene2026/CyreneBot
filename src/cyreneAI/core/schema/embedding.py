@@ -37,6 +37,6 @@ class EmbeddingResponse(CyreneAISchema):
 
     provider_id: str
     model: str | None = None
-    embeddings: list[EmbeddingVector] = Field(default_factory=list)
+    embeddings: list[EmbeddingVector] = []
     usage: TokenUsage | None = None
     raw: dict[str, Any] | None = None

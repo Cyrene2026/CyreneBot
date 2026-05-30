@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.errors.base import StateError, UnsupportedError

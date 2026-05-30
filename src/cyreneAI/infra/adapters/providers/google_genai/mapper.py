@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
 from cyreneAI.core.schema.image import (
@@ -155,11 +155,11 @@ def map_tool_config(tool_choice: ToolChoice | None) -> dict[str, Any] | None:
 
 
 def map_google_genai_response(provider_id: str, response: Any) -> ChatResponse:
-    candidates = getattr(response, "candidates", None) or []
+    candidates = cast(list[Any], getattr(response, "candidates", None) or [])
     candidate = candidates[0] if candidates else None
-    parts = []
+    parts: list[Any] = []
     if candidate is not None and getattr(candidate, "content", None) is not None:
-        parts = getattr(candidate.content, "parts", None) or []
+        parts = cast(list[Any], getattr(candidate.content, "parts", None) or [])
 
     text = map_response_text(parts)
     tool_calls = [
@@ -197,11 +197,11 @@ def map_google_genai_response(provider_id: str, response: Any) -> ChatResponse:
 
 
 def map_response_text(parts: list[Any]) -> str | None:
-    texts = [
-        getattr(part, "text", None)
-        for part in parts
-        if getattr(part, "text", None)
-    ]
+    texts: list[str] = []
+    for part in parts:
+        text = getattr(part, "text", None)
+        if isinstance(text, str) and text:
+            texts.append(text)
     if not texts:
         return None
     return "\n".join(texts)
@@ -313,7 +313,11 @@ def map_google_content_image_generation_request(
 def _map_response_modalities(request: ImageGenerationRequest) -> list[str]:
     raw_modalities = request.metadata.get("response_modalities")
     if isinstance(raw_modalities, list):
-        modalities = [str(item).upper() for item in raw_modalities if item]
+        modalities = [
+            str(item).upper()
+            for item in cast(list[Any], raw_modalities)
+            if item
+        ]
         if modalities:
             return modalities
     return ["IMAGE"]
@@ -342,7 +346,7 @@ def map_google_image_generation_response(
     model: str,
     response: Any,
 ) -> ImageGenerationResponse:
-    generated_images = getattr(response, "generated_images", None) or []
+    generated_images = cast(list[Any], getattr(response, "generated_images", None) or [])
     return ImageGenerationResponse(
         provider_id=provider_id,
         model=model,
@@ -363,11 +367,11 @@ def map_google_content_image_generation_response(
     model: str,
     response: Any,
 ) -> ImageGenerationResponse:
-    candidates = getattr(response, "candidates", None) or []
+    candidates = cast(list[Any], getattr(response, "candidates", None) or [])
     candidate = candidates[0] if candidates else None
-    parts = []
+    parts: list[Any] = []
     if candidate is not None and getattr(candidate, "content", None) is not None:
-        parts = getattr(candidate.content, "parts", None) or []
+        parts = cast(list[Any], getattr(candidate.content, "parts", None) or [])
 
     text_parts = [
         text

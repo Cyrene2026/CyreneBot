@@ -96,8 +96,11 @@ testpaths = ["src/cyreneAI/tests"]
 pythonpath = ["src"]
 
 [tool.pyright]
-include = ["src"]
-exclude = ["**/__pycache__", "tests/legacy",".venv/"]
+include = [
+    "src/cyreneAI/api",
+    "src/cyreneAI/core",
+]
+exclude = ["**/__pycache__", ".venv/"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 reportMissingImports = "error"

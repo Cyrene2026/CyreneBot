@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError as PydanticValidationError
 
@@ -62,5 +62,8 @@ def _load_skill_file(path: Path) -> list[SkillDefinition]:
 
 def _map_skill_payload(payload: Any) -> list[SkillDefinition]:
     if isinstance(payload, list):
-        return [SkillDefinition.model_validate(item) for item in payload]
+        return [
+            SkillDefinition.model_validate(item)
+            for item in cast(list[Any], payload)
+        ]
     return [SkillDefinition.model_validate(payload)]

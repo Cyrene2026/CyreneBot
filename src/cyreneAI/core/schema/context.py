@@ -96,7 +96,7 @@ class ContextSegment(ContextBase):
 
     segment_id: str
     role: ContextSegmentRole
-    items: list[ContextItem] = Field(default_factory=list)
+    items: list[ContextItem] = []
     token_count: int | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -107,7 +107,7 @@ class ContextWindow(ContextBase):
     """
 
     window_id: str
-    segments: list[ContextSegment] = Field(default_factory=list)
+    segments: list[ContextSegment] = []
     budget: ContextBudget | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -129,7 +129,7 @@ class ContextBuildRequest(ContextBase):
     """
 
     session_id: str
-    messages: list[Message] = Field(default_factory=list)
+    messages: list[Message] = []
     budget: ContextBudget | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -140,5 +140,5 @@ class ContextBuildResult(ContextBase):
     """
 
     window: ContextWindow
-    dropped_items: list[ContextItem] = Field(default_factory=list)
+    dropped_items: list[ContextItem] = []
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.application.chat.orchestrator import ChatOrchestrator
 from cyreneAI.application.knowledge.retrieval_orchestrator import RetrievalOrchestrator
@@ -19,7 +19,7 @@ from cyreneAI.core.schema.context import (
     ContextSegment,
     ContextSegmentRole,
 )
-from cyreneAI.core.schema.message import Message
+from cyreneAI.core.schema.message import ContentPart, Message
 from cyreneAI.core.schema.vector import VectorSearchMatch
 
 
@@ -174,14 +174,10 @@ def _format_retrieved_content(
         compact_metadata = (
             _compact_retrieval_metadata(match) if include_metadata else None
         )
-        return " | ".join(
-            part
-            for part in [
-                f"{index + 1}. {compact_content}",
-                compact_metadata,
-            ]
-            if part
-        )
+        compact_parts = [f"{index + 1}. {compact_content}"]
+        if compact_metadata:
+            compact_parts.append(compact_metadata)
+        return " | ".join(compact_parts)
 
     return _join_context_lines(
         [
@@ -265,7 +261,8 @@ def _collection_metadata(collection_id: str | None) -> dict[str, str]:
 def _messages_to_text(messages: list[Message]) -> str:
     chunks: list[str] = []
     for message in messages:
-        for part in message.content or []:
+        content = cast(list[ContentPart], message.content or [])
+        for part in content:
             if part.text:
                 chunks.append(part.text)
     return "\n".join(chunks)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.schema.provider import ProviderModel
 
@@ -35,7 +35,7 @@ def _first_string_attr(item: Any, *names: str) -> str | None:
         if isinstance(value, str) and value:
             return value
         if isinstance(item, dict):
-            value = item.get(name)
+            value = cast(dict[str, Any], item).get(name)
             if isinstance(value, str) and value:
                 return value
     return None
