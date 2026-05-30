@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 CORE_DIR = PROJECT_ROOT / "core"
 INFRA_DIR = PROJECT_ROOT / "infra"
 APPLICATION_DIR = PROJECT_ROOT / "application"
+SERVER_DIR = PROJECT_ROOT / "server"
 PROVIDER_CATALOG_DIR = INFRA_DIR / "provider_catalog"
 PROVIDER_ADAPTERS_DIR = INFRA_DIR / "adapters" / "providers"
 BOOTSTRAP_REGISTRATIONS_DIR = INFRA_DIR / "bootstrap" / "registrations"
@@ -219,6 +220,18 @@ def test_application_does_not_import_infra_or_server() -> None:
                 module == prefix or module.startswith(f"{prefix}.")
                 for prefix in forbidden_prefixes
             ):
+                violations.append((_relative(path), module))
+
+    assert violations == []
+
+
+def test_server_does_not_import_plugin_sdk_api() -> None:
+    violations = []
+    forbidden_prefix = "cyreneAI.api"
+
+    for path in _python_files(SERVER_DIR):
+        for module in _imported_modules(path):
+            if module == forbidden_prefix or module.startswith(f"{forbidden_prefix}."):
                 violations.append((_relative(path), module))
 
     assert violations == []

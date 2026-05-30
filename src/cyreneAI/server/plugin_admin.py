@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from cyreneAI.api.cli import PluginCheckError, check_plugin_project
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.bootstrap import load_filesystem_plugins
 from cyreneAI.core.errors.plugin import PluginInputError, PluginStateError
+from cyreneAI.core.plugin.project import (
+    PLUGIN_SIGNATURE_FILENAME,
+    load_plugin_manifest,
+    plugin_manifest_isolation_mode,
+    resolve_plugin_entrypoint,
+    resolve_plugin_project_path,
+    validate_plugin_project_signature,
+)
 from cyreneAI.core.plugin.runtime_capabilities import (
     list_plugin_runtime_dependencies,
     list_plugin_runtime_permissions,
@@ -14,10 +21,12 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginDefinition,
     PluginEventDefinition,
+    PluginIsolationMode,
     PluginMiddlewareDefinition,
     PluginRuntimeDependencyInfo,
     PluginRuntimePermissionInfo,
     PluginSourceInfo,
+    PluginSignatureStatus,
     PluginStatusReport,
     PluginTaskDefinition,
     PluginTaskStatus,
@@ -76,26 +85,13 @@ class PluginAdminService:
         }
 
     def validate_path(self, body: PluginPathRequestBody) -> PluginValidationReport:
-        try:
-            report = check_plugin_project(body.path)
-        except PluginCheckError as exc:
-            return PluginValidationReport(
-                path=body.path,
-                valid=False,
-                errors=[str(exc)],
-            )
-        return PluginValidationReport(
-            path=body.path,
-            valid=True,
-            plugin_id=report.manifest.plugin_id,
-            warnings=list(report.warnings),
-        )
+        return _validate_plugin_project_path(body.path)
 
     def install_path(self, body: PluginPathRequestBody) -> PluginInstallReport:
-        try:
-            check_plugin_project(body.path)
-        except PluginCheckError as exc:
-            raise PluginInputError(str(exc)) from exc
+        report = _validate_plugin_project_path(body.path)
+        if not report.valid:
+            detail = "; ".join(report.errors) or "Plugin path is invalid"
+            raise PluginInputError(detail)
 
         definitions = load_filesystem_plugins(self._runtime, [body.path])
         manager = self._plugin_manager()
@@ -277,6 +273,49 @@ def _get_plugin_source_or_none(manager: Any, plugin_id: str) -> PluginSourceInfo
         return manager.get_plugin_source(plugin_id)
     except PluginStateError:
         return None
+
+
+def _validate_plugin_project_path(path: str) -> PluginValidationReport:
+    try:
+        project_path = resolve_plugin_project_path(path)
+        manifest = load_plugin_manifest(project_path / "plugin.json")
+        resolve_plugin_entrypoint(project_path, manifest)
+        signature = validate_plugin_project_signature(project_path)
+    except PluginInputError as exc:
+        return PluginValidationReport(
+            path=path,
+            valid=False,
+            errors=[str(exc)],
+        )
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    signature_status = signature["status"]
+    if signature_status in {
+        PluginSignatureStatus.INVALID,
+        PluginSignatureStatus.UNSUPPORTED,
+    }:
+        errors.append(
+            "plugin signature validation failed: "
+            f"{signature.get('error', 'unknown signature error')}"
+        )
+    elif signature_status == PluginSignatureStatus.UNSIGNED:
+        warnings.append(f"plugin has no {PLUGIN_SIGNATURE_FILENAME} signature file")
+
+    isolation_mode = plugin_manifest_isolation_mode(manifest)
+    if isolation_mode != PluginIsolationMode.IN_PROCESS:
+        warnings.append(
+            f"plugin requests isolation mode {isolation_mode.value}, "
+            "but the current runtime only supports in_process"
+        )
+
+    return PluginValidationReport(
+        path=path,
+        valid=not errors,
+        plugin_id=manifest.plugin_id,
+        warnings=warnings,
+        errors=errors,
+    )
 
 
 def _parse_task_statuses(statuses: list[str] | None) -> list[PluginTaskStatus] | None:

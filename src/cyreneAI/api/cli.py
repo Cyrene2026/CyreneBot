@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import re
 import sys
 from contextlib import suppress
-from json import JSONDecodeError
 from pathlib import Path
 from types import ModuleType
 from textwrap import dedent
 from typing import Any, Sequence
 
-from pydantic import ValidationError as PydanticValidationError
-
 from cyreneAI.api.testing import PluginTestClient
-from cyreneAI.core.errors.plugin import PluginError
+from cyreneAI.core.errors.plugin import PluginError, PluginInputError
+from cyreneAI.core.plugin.project import (
+    PLUGIN_SIGNATURE_FILENAME,
+    load_plugin_manifest,
+    plugin_manifest_isolation_mode,
+    plugin_project_content_hash,
+    resolve_plugin_entrypoint,
+    resolve_plugin_project_path,
+    validate_plugin_project_signature,
+)
 from cyreneAI.core.schema.plugin import (
     PluginCapability,
     PluginCommandArgumentDefinition,
@@ -301,7 +306,7 @@ def sign_plugin_project(
 ) -> Path:
     project_path = _resolve_plugin_project_path(path)
     _load_manifest(project_path / "plugin.json")
-    content_hash = _project_content_hash(project_path.resolve())
+    content_hash = plugin_project_content_hash(project_path)
     payload: dict[str, object] = {
         "algorithm": "sha256",
         "content_hash": content_hash,
@@ -347,46 +352,24 @@ def _ensure_writable(
 
 
 def _resolve_plugin_project_path(path: str | Path) -> Path:
-    candidate = Path(path)
-    if candidate.is_file():
-        if candidate.name != "plugin.json":
-            raise PluginCheckError(f"plugin file {candidate} must be named plugin.json")
-        return candidate.parent
-    if not candidate.exists():
-        raise PluginCheckError(f"plugin path {candidate} does not exist")
-    if not candidate.is_dir():
-        raise PluginCheckError(f"plugin path {candidate} must be a directory")
-    if not (candidate / "plugin.json").is_file():
-        raise PluginCheckError(f"plugin path {candidate} must contain plugin.json")
-    return candidate
+    try:
+        return resolve_plugin_project_path(path)
+    except PluginInputError as exc:
+        raise PluginCheckError(str(exc)) from exc
 
 
 def _load_manifest(path: Path) -> PluginManifest:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except JSONDecodeError as exc:
-        raise PluginCheckError(f"plugin manifest {path} must contain valid JSON") from exc
-
-    try:
-        return PluginManifest.model_validate(payload)
-    except PydanticValidationError as exc:
-        raise PluginCheckError(
-            f"plugin manifest {path} contains invalid plugin metadata"
-        ) from exc
+        return load_plugin_manifest(path)
+    except PluginInputError as exc:
+        raise PluginCheckError(str(exc)) from exc
 
 
 def _resolve_entrypoint(project_path: Path, manifest: PluginManifest) -> Path:
-    project_root = project_path.resolve()
-    entrypoint = (project_path / manifest.entrypoint).resolve()
-    if entrypoint != project_root and not entrypoint.is_relative_to(project_root):
-        raise PluginCheckError(
-            f"plugin {manifest.plugin_id} entrypoint cannot escape plugin project"
-        )
-    if not entrypoint.is_file():
-        raise PluginCheckError(
-            f"plugin {manifest.plugin_id} entrypoint {entrypoint} does not exist"
-        )
-    return entrypoint
+    try:
+        return resolve_plugin_entrypoint(project_path, manifest)
+    except PluginInputError as exc:
+        raise PluginCheckError(str(exc)) from exc
 
 
 def _load_entrypoint_module(
@@ -518,9 +501,9 @@ def _check_deployment_warnings(
 ) -> tuple[str, ...]:
     warnings: list[str] = []
     if signature_status == PluginSignatureStatus.UNSIGNED:
-        warnings.append("plugin has no .cyreneai-plugin-signature.json signature file")
+        warnings.append(f"plugin has no {PLUGIN_SIGNATURE_FILENAME} signature file")
 
-    isolation_mode = _manifest_isolation_mode(manifest)
+    isolation_mode = plugin_manifest_isolation_mode(manifest)
     if isolation_mode != PluginIsolationMode.IN_PROCESS:
         warnings.append(
             f"plugin requests isolation mode {isolation_mode.value}, "
@@ -530,76 +513,22 @@ def _check_deployment_warnings(
 
 
 def _check_plugin_signature(project_path: Path) -> dict[str, Any]:
-    content_hash = _project_content_hash(project_path.resolve())
-    signature_path = project_path / ".cyreneai-plugin-signature.json"
-    if not signature_path.is_file():
-        return {
-            "status": PluginSignatureStatus.UNSIGNED,
-            "content_hash": content_hash,
-        }
-
     try:
-        payload = json.loads(signature_path.read_text(encoding="utf-8"))
-    except JSONDecodeError as exc:
-        raise PluginCheckError(
-            f"plugin signature {signature_path} must contain valid JSON"
-        ) from exc
+        signature = validate_plugin_project_signature(project_path)
+    except PluginInputError as exc:
+        raise PluginCheckError(str(exc)) from exc
 
-    algorithm = str(payload.get("algorithm", "")).lower()
-    if algorithm != "sha256":
+    if signature["status"] == PluginSignatureStatus.UNSUPPORTED:
+        reason = str(signature.get("error", "unsupported signature algorithm"))
+        algorithm = reason.removeprefix("unsupported signature algorithm: ")
         raise PluginCheckError(
-            "plugin signature uses unsupported algorithm: "
-            f"{algorithm or '(missing)'}"
+            f"plugin signature uses unsupported algorithm: {algorithm}"
         )
-    if payload.get("content_hash") != content_hash:
+    if signature["status"] == PluginSignatureStatus.INVALID:
         raise PluginCheckError(
             "plugin signature content_hash does not match plugin content"
         )
-    return {
-        "status": PluginSignatureStatus.VALID,
-        "content_hash": content_hash,
-    }
-
-
-def _project_content_hash(project_path: Path) -> str:
-    digest = hashlib.sha256()
-    for path in _hashable_project_files(project_path):
-        relative_path = path.relative_to(project_path).as_posix()
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _hashable_project_files(project_path: Path) -> list[Path]:
-    ignored_names = {
-        ".cyreneai-plugin-signature.json",
-    }
-    ignored_suffixes = {
-        ".pyc",
-        ".pyo",
-    }
-    files: list[Path] = []
-    for path in project_path.rglob("*"):
-        if not path.is_file():
-            continue
-        if "__pycache__" in path.parts:
-            continue
-        if path.name in ignored_names or path.suffix in ignored_suffixes:
-            continue
-        files.append(path)
-    return sorted(files, key=lambda item: item.relative_to(project_path).as_posix())
-
-
-def _manifest_isolation_mode(manifest: PluginManifest) -> PluginIsolationMode:
-    value = manifest.metadata.get("isolation")
-    if isinstance(value, dict):
-        value = value.get("mode")
-    if isinstance(value, str):
-        with suppress(ValueError):
-            return PluginIsolationMode(value)
-    return PluginIsolationMode.IN_PROCESS
+    return signature
 
 
 def _route_count(plugin: object, attribute: str) -> int:

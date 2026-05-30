@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import importlib.util
-import hashlib
-import json
 import re
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
-from json import JSONDecodeError
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from pydantic import ValidationError as PydanticValidationError
-
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
+from cyreneAI.core.plugin.project import (
+    load_plugin_manifest,
+    plugin_manifest_isolation_mode,
+    plugin_project_content_hash,
+    resolve_plugin_entrypoint,
+    validate_plugin_project_signature,
+)
 from cyreneAI.core.schema.plugin import (
-    PluginIsolationMode,
     PluginManifest,
     PluginSignatureStatus,
     PluginSourceInfo,
@@ -99,16 +100,7 @@ def _load_plugin_project(
     if plugin_assets is not None:
         plugin_assets.register(manifest.plugin_id, project_path / "assets")
 
-    project_root = project_path.resolve()
-    entrypoint = (project_path / manifest.entrypoint).resolve()
-    if entrypoint != project_root and not entrypoint.is_relative_to(project_root):
-        raise PluginConfigurationError(
-            f"Plugin {manifest.plugin_id} entrypoint cannot escape plugin project"
-        )
-    if not entrypoint.is_file():
-        raise PluginConfigurationError(
-            f"Plugin {manifest.plugin_id} entrypoint {entrypoint} does not exist"
-        )
+    entrypoint = _resolve_entrypoint(project_path, manifest)
 
     module = _load_entrypoint_module(
         entrypoint=entrypoint,
@@ -139,20 +131,16 @@ def _load_plugin_project(
 
 def _load_manifest(path: Path) -> PluginManifest:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except JSONDecodeError as exc:
-        raise PluginInputError(
-            f"Plugin manifest {path} must contain valid JSON",
-            cause=exc,
-        ) from exc
+        return load_plugin_manifest(path)
+    except PluginInputError as exc:
+        raise PluginInputError(str(exc), cause=exc.cause) from exc
 
+
+def _resolve_entrypoint(project_path: Path, manifest: PluginManifest) -> Path:
     try:
-        return PluginManifest.model_validate(payload)
-    except PydanticValidationError as exc:
-        raise PluginInputError(
-            f"Plugin manifest {path} contains invalid plugin metadata",
-            cause=exc,
-        ) from exc
+        return resolve_plugin_entrypoint(project_path, manifest)
+    except PluginInputError as exc:
+        raise PluginConfigurationError(str(exc), cause=exc) from exc
 
 
 def _load_entrypoint_module(
@@ -197,8 +185,8 @@ def _build_source_info(
     entrypoint: Path,
 ) -> PluginSourceInfo:
     project_root = project_path.resolve()
-    content_hash = _project_content_hash(project_root)
-    signature = _validate_signature(project_root, content_hash)
+    content_hash = plugin_project_content_hash(project_root)
+    signature = validate_plugin_project_signature(project_root, content_hash)
     if signature["status"] in {
         PluginSignatureStatus.INVALID,
         PluginSignatureStatus.UNSUPPORTED,
@@ -216,90 +204,9 @@ def _build_source_info(
         version=manifest.version,
         content_hash=content_hash,
         loaded_at=datetime.now(UTC),
-        isolation_mode=_manifest_isolation_mode(manifest),
+        isolation_mode=plugin_manifest_isolation_mode(manifest),
         signature_status=signature["status"],
         signature_path=signature.get("path"),
         signed_by=signature.get("signed_by"),
         signature_error=signature.get("error"),
     )
-
-
-def _project_content_hash(project_path: Path) -> str:
-    digest = hashlib.sha256()
-    for path in _hashable_project_files(project_path):
-        relative_path = path.relative_to(project_path).as_posix()
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _hashable_project_files(project_path: Path) -> list[Path]:
-    ignored_names = {
-        ".cyreneai-plugin-signature.json",
-    }
-    ignored_suffixes = {
-        ".pyc",
-        ".pyo",
-    }
-    files: list[Path] = []
-    for path in project_path.rglob("*"):
-        if not path.is_file():
-            continue
-        if "__pycache__" in path.parts:
-            continue
-        if path.name in ignored_names or path.suffix in ignored_suffixes:
-            continue
-        files.append(path)
-    return sorted(files, key=lambda item: item.relative_to(project_path).as_posix())
-
-
-def _validate_signature(
-    project_path: Path,
-    content_hash: str,
-) -> dict[str, Any]:
-    signature_path = project_path / ".cyreneai-plugin-signature.json"
-    if not signature_path.is_file():
-        return {"status": PluginSignatureStatus.UNSIGNED}
-
-    try:
-        payload = json.loads(signature_path.read_text(encoding="utf-8"))
-    except JSONDecodeError as exc:
-        raise PluginInputError(
-            f"Plugin signature {signature_path} must contain valid JSON",
-            cause=exc,
-        ) from exc
-
-    algorithm = str(payload.get("algorithm", "")).lower()
-    expected_hash = payload.get("content_hash")
-    signed_by = payload.get("signed_by")
-    if algorithm != "sha256":
-        return {
-            "status": PluginSignatureStatus.UNSUPPORTED,
-            "path": str(signature_path.resolve()),
-            "signed_by": signed_by if isinstance(signed_by, str) else None,
-            "error": f"unsupported signature algorithm: {algorithm or '(missing)'}",
-        }
-    if expected_hash != content_hash:
-        return {
-            "status": PluginSignatureStatus.INVALID,
-            "path": str(signature_path.resolve()),
-            "signed_by": signed_by if isinstance(signed_by, str) else None,
-            "error": "signature content_hash does not match plugin content",
-        }
-    return {
-        "status": PluginSignatureStatus.VALID,
-        "path": str(signature_path.resolve()),
-        "signed_by": signed_by if isinstance(signed_by, str) else None,
-    }
-
-
-def _manifest_isolation_mode(manifest: PluginManifest) -> PluginIsolationMode:
-    value = manifest.metadata.get("isolation")
-    if isinstance(value, dict):
-        value = value.get("mode")
-    if isinstance(value, str):
-        with suppress(ValueError):
-            return PluginIsolationMode(value)
-    return PluginIsolationMode.IN_PROCESS
