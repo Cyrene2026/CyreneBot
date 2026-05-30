@@ -1,14 +1,24 @@
+
+# CyreneAI Plugin SDK
+
 [project]
-name = "CyreneBot"
+name = "cyreneai-plugin-sdk"
 version = "0.1.0"
-description = "A cleanly layered AI bot framework for provider, context, skill, tool, and channel orchestration."
+description = "Plugin author SDK for CyreneAI."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "pydantic",
+]
+
+[project.scripts]
+cyrene-plugin = "cyreneAI.api.cli:main"
+
+[dependency-groups]
+dev = [
     "openai",
     "python-dotenv",
     "httpx",
-    "pydantic",
     "pytest",
     "pytest-asyncio",
     "google-genai",
@@ -19,17 +29,71 @@ dependencies = [
     "uvicorn[standard]>=0.48.0",
     "python-multipart>=0.0.20",
     "pyright",
+    "twine",
 ]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = [
+    "cyreneAI.api*",
+    "cyreneAI.core*",
+]
+exclude = [
+    "cyreneAI.adapters*",
+    "cyreneAI.application*",
+    "cyreneAI.bootstrap*",
+    "cyreneAI.infra*",
+    "cyreneAI.server*",
+    "cyreneAI.tests*",
+]
+
+[tool.setuptools.package-data]
+"cyreneAI.api" = ["py.typed"]
+"cyreneAI.core" = ["py.typed"]
+
+[tool.cyreneAI.plugin_sdk_package]
+distribution_name = "cyreneai-plugin-sdk"
+package_name = "cyreneAI"
+include_packages = [
+    "cyreneAI.api*",
+    "cyreneAI.core*",
+]
+exclude_packages = [
+    "cyreneAI.adapters*",
+    "cyreneAI.application*",
+    "cyreneAI.bootstrap*",
+    "cyreneAI.infra*",
+    "cyreneAI.server*",
+    "cyreneAI.tests*",
+]
+required_files = [
+    "README.md",
+    "LICENSE",
+    "src/cyreneAI/api/py.typed",
+    "src/cyreneAI/core/py.typed",
+]
+forbidden_sdist_paths = [
+    ".env",
+    ".github",
+    ".venv",
+    "data",
+    "examples",
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "frontend",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["src/cyreneAI/tests"]
+pythonpath = ["src"]
 
 [tool.pyright]
 include = ["src"]

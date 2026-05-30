@@ -78,6 +78,45 @@ server
 
 插件系统的设计原则是：配置权和页面权归插件作者，框架只提供入口与能力。配置不是框架运行契约，而是插件作者管理自身行为的工具；插件可以选择常量、环境变量、JSON、TOML、YAML、Pydantic、dataclass 或命令式管理方式。框架不要求 `_conf_schema.json` 这类前端表单 schema，也不把前端渲染细节作为插件发布约束。若未来提供插件设置页能力，也应是插件显式注册的 settings/page 入口，由插件 handler 读取输入、修改状态并返回 HTML/Response 或重定向；页面结构、CSS、静态资源和交互方式由插件作者决定，宿主只负责路由、权限、依赖注入、资源托管和错误隔离。
 
+插件 SDK 的 PyPI 发布边界必须独立治理。PyPI 包不是源码仓库压缩包，也不是一键部署包；它只发布插件作者在开发、类型检查和本地测试中需要依赖的稳定契约。未来若拆出插件 SDK，建议使用独立发行名，例如 `cyreneai-plugin-sdk`，避免和完整运行时的顶层包名互相覆盖。
+
+插件 SDK 必须包含：
+
+```text
+插件声明、路由、命令、事件、任务、middleware 的公共 API
+插件依赖注入、参数解析、回复归一化和类型辅助
+插件开发所需的 core schema、protocol、errors 中的稳定最小子集
+PluginTestClient 及其默认 fake 依赖
+py.typed、README、LICENSE 和包元数据
+```
+
+插件 SDK 可以包含：
+
+```text
+小型示例片段
+插件模板
+面向插件作者的简短文档
+仅用于 SDK 自测的轻量测试辅助
+只生成插件项目骨架的快捷初始化命令，例如 cyrene-plugin init
+```
+
+插件 SDK 禁止包含：
+
+```text
+server、bootstrap、application runtime、infra adapter
+provider SDK、外部数据库 adapter、具体 channel 实现
+Dockerfile、docker-compose、部署脚本、CI 配置
+前端源码、前端构建产物、设计稿、截图
+完整 examples 仓库、大体积 fixtures、真实服务配置
+.env、密钥样例、运行时数据目录
+```
+
+SDK 的依赖也必须保持轻。允许稳定类型、schema 和测试所需的基础依赖；禁止因为 SDK 发布而引入 `openai`、`anthropic`、`google-genai`、`fastapi`、`uvicorn`、数据库驱动或任何 provider 专属 SDK。完整运行时、HTTP server、前端管理页和 Docker 镜像应走独立发布物，由运行时包、release artifact 或镜像承担。
+
+SDK CLI 只服务插件开发者的本地项目初始化和静态辅助，不启动宿主 server，不拉起 provider，不写入 Docker 或前端工程，不替插件作者生成业务配置 schema。初始化模板必须是最小可运行插件项目，包含 `plugin.json`、入口文件和基于 `PluginTestClient` 的本地测试。
+
+构建配置必须使用白名单，而不是把 `src` 整棵树自动打进包里。发布前必须检查 wheel 和 sdist 内容，确认分发物只包含上述 SDK 边界内的文件；如果出现 Docker、前端、server、infra adapter 或完整 examples，发布即视为失败。
+
 ## 真实运行架构
 
 单张“分层图”很容易把系统画平。CyreneBot 实际上有三条主线：模块边界、启动装配、请求运行时。

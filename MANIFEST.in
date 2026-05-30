@@ -1,0 +1,34 @@
+include README.md
+include LICENSE
+include pyproject.toml
+exclude src/cyreneAI/__init__.py
+exclude src/cyreneAI/bootstrap.py
+
+graft src/cyreneAI/api
+graft src/cyreneAI/core
+
+prune src/cyreneAI/adapters
+prune src/cyreneAI/application
+prune src/cyreneAI/infra
+prune src/cyreneAI/server
+prune src/cyreneAI/tests
+prune examples
+prune data
+prune .github
+prune .claude
+prune .venv
+prune build
+prune dist
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.egg-info
+global-exclude .env
+global-exclude .env.*
+global-exclude Dockerfile
+global-exclude docker-compose.yml
+global-exclude docker-compose.yaml
+global-exclude *.db
+global-exclude *.sqlite
+global-exclude *.sqlite3
+global-exclude *.log
