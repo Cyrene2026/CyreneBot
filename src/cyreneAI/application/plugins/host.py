@@ -31,6 +31,7 @@ from cyreneAI.core.plugin.plugin_protocol import (
     PluginTaskExecutorProtocol,
     PluginTaskNamespaceProtocol,
 )
+from cyreneAI.core.plugin.install_policy import PluginInstallPolicy
 from cyreneAI.core.schema.application import (
     ApplicationChatRequest,
     ApplicationChatResult,
@@ -55,6 +56,7 @@ from cyreneAI.core.schema.plugin import (
     PluginPermission,
     PluginPermissionAuditDecision,
     PluginPermissionAuditRecord,
+    PluginSourceInfo,
     PluginStatusReport,
     PluginTaskDefinition,
     PluginTaskRequest,
@@ -255,6 +257,15 @@ class PluginHost:
             raise PluginConfigurationError(
                 f"插件 reload 后的 plugin_id 不匹配: {new_manifest.plugin_id}"
             )
+        new_source = _module_source(new_module, plugin_id)
+        reload_audit = PluginInstallPolicy().validate_reload(
+            plugin_id=plugin_id,
+            old_definition=old_definition,
+            old_source=source,
+            new_manifest=new_manifest,
+            new_source=new_source,
+        )
+        new_source.metadata["reload_audit"] = reload_audit
 
         self._unregister_plugin(plugin_id)
         try:
@@ -935,3 +946,13 @@ def _status_from_manifest(
 
 def _loader_status_id(loader: PluginLoaderProtocol) -> str:
     return f"loader:{loader.__class__.__module__}.{loader.__class__.__name__}"
+
+
+def _module_source(
+    module: PluginModuleProtocol,
+    plugin_id: str,
+) -> PluginSourceInfo:
+    source = getattr(module, "__cyreneai_plugin_source__", None)
+    if not isinstance(source, PluginSourceInfo):
+        raise PluginStateError(f"插件 {plugin_id} reload 后未记录加载来源")
+    return source

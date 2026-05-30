@@ -4,18 +4,15 @@ import importlib.util
 import re
 import sys
 from contextlib import suppress
-from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
 from cyreneAI.core.plugin.project import (
+    build_filesystem_plugin_source_info,
     load_plugin_manifest,
-    plugin_manifest_isolation_mode,
-    plugin_project_content_hash,
     resolve_plugin_entrypoint,
-    validate_plugin_project_signature,
 )
 from cyreneAI.core.schema.plugin import (
     PluginManifest,
@@ -184,29 +181,17 @@ def _build_source_info(
     manifest: PluginManifest,
     entrypoint: Path,
 ) -> PluginSourceInfo:
-    project_root = project_path.resolve()
-    content_hash = plugin_project_content_hash(project_root)
-    signature = validate_plugin_project_signature(project_root, content_hash)
-    if signature["status"] in {
+    source_info = build_filesystem_plugin_source_info(
+        project_path,
+        manifest,
+        entrypoint,
+    )
+    if source_info.signature_status in {
         PluginSignatureStatus.INVALID,
         PluginSignatureStatus.UNSUPPORTED,
     }:
         raise PluginInputError(
             f"Plugin {manifest.plugin_id} signature validation failed: "
-            f"{signature.get('error')}"
+            f"{source_info.signature_error}"
         )
-    return PluginSourceInfo(
-        plugin_id=manifest.plugin_id,
-        source_type=PluginSourceType.FILESYSTEM,
-        path=str(project_root),
-        manifest_path=str((project_path / "plugin.json").resolve()),
-        entrypoint=str(entrypoint),
-        version=manifest.version,
-        content_hash=content_hash,
-        loaded_at=datetime.now(UTC),
-        isolation_mode=plugin_manifest_isolation_mode(manifest),
-        signature_status=signature["status"],
-        signature_path=signature.get("path"),
-        signed_by=signature.get("signed_by"),
-        signature_error=signature.get("error"),
-    )
+    return source_info

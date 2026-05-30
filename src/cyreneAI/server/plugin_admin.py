@@ -4,14 +4,14 @@ from typing import Any
 
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.bootstrap import load_filesystem_plugins
+from cyreneAI.core.errors.base import ConflictError
 from cyreneAI.core.errors.plugin import PluginInputError, PluginStateError
+from cyreneAI.core.plugin.install_policy import PluginInstallPolicy
 from cyreneAI.core.plugin.project import (
-    PLUGIN_SIGNATURE_FILENAME,
+    build_filesystem_plugin_source_info,
     load_plugin_manifest,
-    plugin_manifest_isolation_mode,
     resolve_plugin_entrypoint,
     resolve_plugin_project_path,
-    validate_plugin_project_signature,
 )
 from cyreneAI.core.plugin.runtime_capabilities import (
     list_plugin_runtime_dependencies,
@@ -21,12 +21,11 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginDefinition,
     PluginEventDefinition,
-    PluginIsolationMode,
+    PluginManifest,
     PluginMiddlewareDefinition,
     PluginRuntimeDependencyInfo,
     PluginRuntimePermissionInfo,
     PluginSourceInfo,
-    PluginSignatureStatus,
     PluginStatusReport,
     PluginTaskDefinition,
     PluginTaskStatus,
@@ -85,16 +84,22 @@ class PluginAdminService:
         }
 
     def validate_path(self, body: PluginPathRequestBody) -> PluginValidationReport:
-        return _validate_plugin_project_path(body.path)
+        return _validate_plugin_project_path(
+            body.path,
+            manager=self._plugin_manager_or_none(),
+        )
 
     def install_path(self, body: PluginPathRequestBody) -> PluginInstallReport:
-        report = _validate_plugin_project_path(body.path)
-        if not report.valid:
-            detail = "; ".join(report.errors) or "Plugin path is invalid"
-            raise PluginInputError(detail)
+        manifest, source = _inspect_plugin_project_path(body.path)
+        manager = self._plugin_manager()
+        PluginInstallPolicy().validate_install(
+            manifest=manifest,
+            source=source,
+            installed_definitions=manager.list_plugins(),
+            installed_sources=manager.list_plugin_sources(),
+        )
 
         definitions = load_filesystem_plugins(self._runtime, [body.path])
-        manager = self._plugin_manager()
         return PluginInstallReport(
             installed=definitions,
             sources=[
@@ -172,6 +177,7 @@ class PluginAdminService:
                 "content_hash": source.content_hash,
                 "signature_status": source.signature_status.value,
                 "isolation_mode": source.isolation_mode.value,
+                "reload_audit": source.metadata.get("reload_audit", {}),
             },
         )
 
@@ -255,6 +261,9 @@ class PluginAdminService:
             raise PluginStateError("Plugin manager is not configured")
         return self._runtime.plugin_manager
 
+    def _plugin_manager_or_none(self):
+        return self._runtime.plugin_manager
+
     def _plugin_task_scheduler(self) -> Any:
         if self._runtime.plugin_task_scheduler is None:
             raise PluginStateError("Plugin task scheduler is not configured")
@@ -275,46 +284,41 @@ def _get_plugin_source_or_none(manager: Any, plugin_id: str) -> PluginSourceInfo
         return None
 
 
-def _validate_plugin_project_path(path: str) -> PluginValidationReport:
+def _inspect_plugin_project_path(path: str) -> tuple[PluginManifest, PluginSourceInfo]:
+    project_path = resolve_plugin_project_path(path)
+    manifest = load_plugin_manifest(project_path / "plugin.json")
+    entrypoint = resolve_plugin_entrypoint(project_path, manifest)
+    source = build_filesystem_plugin_source_info(project_path, manifest, entrypoint)
+    return manifest, source
+
+
+def _validate_plugin_project_path(
+    path: str,
+    *,
+    manager: Any | None = None,
+) -> PluginValidationReport:
     try:
-        project_path = resolve_plugin_project_path(path)
-        manifest = load_plugin_manifest(project_path / "plugin.json")
-        resolve_plugin_entrypoint(project_path, manifest)
-        signature = validate_plugin_project_signature(project_path)
-    except PluginInputError as exc:
+        manifest, source = _inspect_plugin_project_path(path)
+        warnings = list(
+            PluginInstallPolicy().validate_install(
+                manifest=manifest,
+                source=source,
+                installed_definitions=manager.list_plugins() if manager else [],
+                installed_sources=manager.list_plugin_sources() if manager else [],
+            )
+        )
+    except (PluginInputError, ConflictError) as exc:
         return PluginValidationReport(
             path=path,
             valid=False,
             errors=[str(exc)],
         )
 
-    errors: list[str] = []
-    warnings: list[str] = []
-    signature_status = signature["status"]
-    if signature_status in {
-        PluginSignatureStatus.INVALID,
-        PluginSignatureStatus.UNSUPPORTED,
-    }:
-        errors.append(
-            "plugin signature validation failed: "
-            f"{signature.get('error', 'unknown signature error')}"
-        )
-    elif signature_status == PluginSignatureStatus.UNSIGNED:
-        warnings.append(f"plugin has no {PLUGIN_SIGNATURE_FILENAME} signature file")
-
-    isolation_mode = plugin_manifest_isolation_mode(manifest)
-    if isolation_mode != PluginIsolationMode.IN_PROCESS:
-        warnings.append(
-            f"plugin requests isolation mode {isolation_mode.value}, "
-            "but the current runtime only supports in_process"
-        )
-
     return PluginValidationReport(
         path=path,
-        valid=not errors,
+        valid=True,
         plugin_id=manifest.plugin_id,
         warnings=warnings,
-        errors=errors,
     )
 
 

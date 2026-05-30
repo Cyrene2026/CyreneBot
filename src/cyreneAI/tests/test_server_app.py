@@ -764,7 +764,16 @@ def test_server_installs_and_reloads_filesystem_plugin(tmp_path) -> None:
             assert install_response.json()["sources"][0]["source_type"] == "filesystem"
             assert reload_response.status_code == 200
             assert reload_response.json()["metadata"]["version"] == "0.2.0"
+            assert reload_response.json()["metadata"]["reload_audit"][
+                "previous_version"
+            ] == "0.1.0"
+            assert reload_response.json()["metadata"]["reload_audit"][
+                "version_changed"
+            ] is True
             assert inspect_response.json()["source"]["version"] == "0.2.0"
+            assert inspect_response.json()["source"]["metadata"]["reload_audit"][
+                "version"
+            ] == "0.2.0"
         finally:
             await runtime.close()
 
@@ -782,6 +791,66 @@ def test_server_validates_plugin_path(tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["valid"] is True
     assert response.json()["plugin_id"] == "my_plugin"
+
+
+def test_server_validate_path_reports_duplicate_plugin_id(tmp_path) -> None:
+    project_path = init_plugin_project(
+        tmp_path / "demo_hello",
+        plugin_id="demo.hello",
+    )
+
+    response = _plugin_client().post(
+        "/plugins/validate-path",
+        json={"path": str(project_path)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    assert "already installed" in response.json()["errors"][0]
+
+
+def test_server_rejects_duplicate_plugin_install(tmp_path) -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime(register_builtin_plugins=False)
+        client = TestClient(
+            create_app(runtime, settings=ServerSettings(auth_enabled=False))
+        )
+        project_path = init_plugin_project(tmp_path / "my_plugin")
+
+        try:
+            first_response = client.post(
+                "/plugins/install-path",
+                json={"path": str(project_path)},
+            )
+            second_response = client.post(
+                "/plugins/install-path",
+                json={"path": str(project_path)},
+            )
+
+            assert first_response.status_code == 200
+            assert second_response.status_code == 409
+            assert "already installed" in second_response.json()["detail"]
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_server_rejects_unsupported_plugin_isolation(tmp_path) -> None:
+    project_path = init_plugin_project(tmp_path / "my_plugin")
+    manifest_path = project_path / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["metadata"]["isolation"]["mode"] = "subprocess"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    response = _plugin_client().post(
+        "/plugins/validate-path",
+        json={"path": str(project_path)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    assert "isolation mode subprocess is not supported" in response.json()["errors"][0]
 
 
 def test_server_reports_invalid_plugin_path(tmp_path) -> None:

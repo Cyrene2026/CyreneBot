@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import suppress
+from datetime import UTC, datetime
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +15,8 @@ from cyreneAI.core.schema.plugin import (
     PluginIsolationMode,
     PluginManifest,
     PluginSignatureStatus,
+    PluginSourceInfo,
+    PluginSourceType,
 )
 
 
@@ -147,6 +150,33 @@ def validate_plugin_project_signature(
     }
 
 
+def build_filesystem_plugin_source_info(
+    project_path: Path,
+    manifest: PluginManifest,
+    entrypoint: Path,
+    *,
+    loaded_at: datetime | None = None,
+) -> PluginSourceInfo:
+    project_root = project_path.resolve()
+    content_hash = plugin_project_content_hash(project_root)
+    signature = validate_plugin_project_signature(project_root, content_hash)
+    return PluginSourceInfo(
+        plugin_id=manifest.plugin_id,
+        source_type=PluginSourceType.FILESYSTEM,
+        path=str(project_root),
+        manifest_path=str((project_path / "plugin.json").resolve()),
+        entrypoint=str(entrypoint),
+        version=manifest.version,
+        content_hash=content_hash,
+        loaded_at=loaded_at or datetime.now(UTC),
+        isolation_mode=plugin_manifest_isolation_mode(manifest),
+        signature_status=signature["status"],
+        signature_path=signature.get("path"),
+        signed_by=signature.get("signed_by"),
+        signature_error=signature.get("error"),
+    )
+
+
 def plugin_manifest_isolation_mode(
     manifest: PluginManifest,
 ) -> PluginIsolationMode:
@@ -161,6 +191,7 @@ def plugin_manifest_isolation_mode(
 
 __all__ = [
     "PLUGIN_SIGNATURE_FILENAME",
+    "build_filesystem_plugin_source_info",
     "hashable_plugin_project_files",
     "load_plugin_manifest",
     "plugin_manifest_isolation_mode",

@@ -97,7 +97,7 @@ pythonpath = ["src"]
 
 [tool.pyright]
 include = ["src"]
-exclude = ["**/__pycache__", "tests/legacy"]
+exclude = ["**/__pycache__", "tests/legacy",".venv/"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 reportMissingImports = "error"
