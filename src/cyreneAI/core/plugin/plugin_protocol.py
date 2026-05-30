@@ -23,7 +23,9 @@ from cyreneAI.core.schema.plugin import (
     PluginMiddlewareRequest,
     PluginMiddlewareType,
     PluginPermission,
+    PluginPermissionAuditRecord,
     PluginScheduledTask,
+    PluginSourceInfo,
     PluginStatusReport,
     PluginTaskDefinition,
     PluginTaskRequest,
@@ -227,6 +229,12 @@ class PluginStorageNamespaceProtocol(Protocol):
         """
         ...
 
+    async def list_keys(self) -> list[str]:
+        """
+        列出当前插件命名空间内的状态 key。
+        """
+        ...
+
     async def update(
         self,
         key: str,
@@ -394,6 +402,12 @@ class PluginTaskSchedulerProtocol(Protocol):
         """
         ...
 
+    def unregister_plugin(self, plugin_id: str) -> None:
+        """
+        注销指定插件的任务定义与未完成的内存任务。
+        """
+        ...
+
     async def start(self) -> None:
         """
         启动调度器。
@@ -403,6 +417,30 @@ class PluginTaskSchedulerProtocol(Protocol):
     async def shutdown(self) -> None:
         """
         关闭调度器并取消受管任务。
+        """
+        ...
+
+    async def list_tasks(
+        self,
+        *,
+        plugin_id: str | None = None,
+        task_name: str | None = None,
+        statuses: list[PluginTaskStatus] | None = None,
+    ) -> list[PluginScheduledTask]:
+        """
+        列出受管任务实例。
+        """
+        ...
+
+    async def cancel_task(self, task_id: str) -> None:
+        """
+        取消指定任务实例。
+        """
+        ...
+
+    async def retry_task(self, task_id: str) -> str:
+        """
+        重试指定失败任务实例并返回新任务 id。
         """
         ...
 
@@ -426,6 +464,24 @@ class PluginTaskStoreProtocol(Protocol):
     ) -> list[PluginScheduledTask]:
         """
         列出待恢复的 pending/running 任务实例。
+        """
+        ...
+
+    async def list_tasks(
+        self,
+        *,
+        plugin_id: str | None = None,
+        task_name: str | None = None,
+        statuses: list[PluginTaskStatus] | None = None,
+    ) -> list[PluginScheduledTask]:
+        """
+        列出任务实例。
+        """
+        ...
+
+    async def get_task(self, task_id: str) -> PluginScheduledTask:
+        """
+        获取单个任务实例。
         """
         ...
 
@@ -562,6 +618,18 @@ class PluginLoaderProtocol(Protocol):
         ...
 
 
+class PluginReloadableSourceProtocol(Protocol):
+    """
+    可按已记录来源重新加载单个插件的来源协议。
+    """
+
+    def reload_plugin(self, source: PluginSourceInfo) -> PluginModuleProtocol:
+        """
+        从来源重新加载插件入口模块。
+        """
+        ...
+
+
 class PluginRegistryProtocol(Protocol):
     """
     插件注册器协议。
@@ -600,6 +668,12 @@ class PluginRegistryProtocol(Protocol):
     def exists(self, plugin_id: str) -> bool:
         """
         判断插件是否存在。
+        """
+        ...
+
+    def set_enabled(self, plugin_id: str, enabled: bool) -> PluginDefinition:
+        """
+        启用或禁用插件定义。
         """
         ...
 
@@ -642,6 +716,39 @@ class PluginRegistryProtocol(Protocol):
     def list_statuses(self) -> list[PluginStatusReport]:
         """
         列出插件生命周期状态。
+        """
+        ...
+
+    def record_source(self, source: PluginSourceInfo) -> None:
+        """
+        记录插件加载来源。
+        """
+        ...
+
+    def get_source(self, plugin_id: str) -> PluginSourceInfo:
+        """
+        获取插件加载来源。
+        """
+        ...
+
+    def list_sources(self) -> list[PluginSourceInfo]:
+        """
+        列出插件加载来源。
+        """
+        ...
+
+    def record_permission_audit(self, record: PluginPermissionAuditRecord) -> None:
+        """
+        记录插件权限检查审计。
+        """
+        ...
+
+    def list_permission_audit(
+        self,
+        plugin_id: str | None = None,
+    ) -> list[PluginPermissionAuditRecord]:
+        """
+        列出插件权限检查审计。
         """
         ...
 

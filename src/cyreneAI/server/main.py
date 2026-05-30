@@ -22,14 +22,9 @@ from cyreneAI.server.config import (
     build_telegram_webhook_provider_id_from_env,
     build_telegram_webhook_secret_from_env,
 )
-from cyreneAI.infra.adapters.plugins.filesystem import (
-    FileSystemPluginAssets,
-    FileSystemPluginLoader,
-)
 
 
 def _build_app():
-    plugin_assets = FileSystemPluginAssets()
     return create_app(
         asyncio.run(
             build_cyrene_ai_runtime(
@@ -41,11 +36,7 @@ def _build_app():
                 plugin_task_database_path=build_plugin_task_database_path_from_env(),
                 disabled_plugin_ids=build_disabled_plugin_ids_from_env(),
                 plugin_fail_fast=False,
-                plugin_assets=plugin_assets,
-                plugin_loaders=[
-                    FileSystemPluginLoader(path, plugin_assets=plugin_assets)
-                    for path in build_plugin_paths_from_env()
-                ],
+                plugin_paths=build_plugin_paths_from_env(),
             )
         ),
         settings=build_server_settings_from_env(),

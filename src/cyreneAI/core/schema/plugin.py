@@ -70,6 +70,45 @@ class PluginRuntimeCapabilityStatus(StrEnum):
     NOT_IMPLEMENTED = "not_implemented"
 
 
+class PluginSourceType(StrEnum):
+    """
+    插件来源类型。
+    """
+
+    FILESYSTEM = "filesystem"
+    BUILTIN = "builtin"
+    UNKNOWN = "unknown"
+
+
+class PluginIsolationMode(StrEnum):
+    """
+    插件运行隔离模式。
+    """
+
+    IN_PROCESS = "in_process"
+    SUBPROCESS = "subprocess"
+
+
+class PluginSignatureStatus(StrEnum):
+    """
+    插件源码签名校验状态。
+    """
+
+    UNSIGNED = "unsigned"
+    VALID = "valid"
+    INVALID = "invalid"
+    UNSUPPORTED = "unsupported"
+
+
+class PluginPermissionAuditDecision(StrEnum):
+    """
+    插件权限检查审计结果。
+    """
+
+    ALLOWED = "allowed"
+    DENIED = "denied"
+
+
 class PluginLifecycleStatus(StrEnum):
     """
     插件在宿主内的加载生命周期状态。
@@ -250,6 +289,41 @@ class PluginStatusReport(PluginBase):
     version: str | None = None
     reason: str | None = None
     error: str | None = None
+
+
+class PluginSourceInfo(PluginBase):
+    """
+    插件加载来源与可复现部署信息。
+    """
+
+    plugin_id: str
+    source_type: PluginSourceType = PluginSourceType.UNKNOWN
+    path: str | None = None
+    manifest_path: str | None = None
+    entrypoint: str | None = None
+    version: str | None = None
+    content_hash: str | None = None
+    loaded_at: datetime
+    isolation_mode: PluginIsolationMode = PluginIsolationMode.IN_PROCESS
+    signature_status: PluginSignatureStatus = PluginSignatureStatus.UNSIGNED
+    signature_path: str | None = None
+    signed_by: str | None = None
+    signature_error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginPermissionAuditRecord(PluginBase):
+    """
+    插件运行时权限检查审计记录。
+    """
+
+    audit_id: str
+    plugin_id: str
+    permission: PluginPermission
+    decision: PluginPermissionAuditDecision
+    reason: str | None = None
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PluginManifest(PluginBase):

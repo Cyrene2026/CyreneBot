@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from cyreneAI.application.bootstrap import (
@@ -20,6 +21,7 @@ from cyreneAI.core.plugin.plugin_protocol import (
     PluginTaskSchedulerProtocol,
     PluginTaskStoreProtocol,
 )
+from cyreneAI.core.schema.plugin import PluginDefinition
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.provider.registry import ProviderRegistry
@@ -32,7 +34,11 @@ from cyreneAI.infra.adapters.skills.filesystem.loader import FileSystemSkillLoad
 from cyreneAI.infra.adapters.bot_polling_states.sqlite.builder import (
     create_sqlite_bot_polling_state_store,
 )
-from cyreneAI.infra.adapters.plugins.filesystem import FileSystemPluginStorage
+from cyreneAI.infra.adapters.plugins.filesystem import (
+    FileSystemPluginAssets,
+    FileSystemPluginLoader,
+    FileSystemPluginStorage,
+)
 from cyreneAI.infra.adapters.plugins.sqlite import create_sqlite_plugin_task_store
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 from cyreneAI.infra.adapters.vector_stores.sqlite.builder import (
@@ -65,6 +71,7 @@ async def build_cyrene_ai_runtime(
     bot_polling_state_store: BotPollingStateStoreProtocol | None = None,
     bot_polling_state_database_path: str | Path | None = None,
     plugin_loaders: list[PluginLoaderProtocol] | None = None,
+    plugin_paths: Sequence[str | Path] | None = None,
     plugin_storage: PluginStorageProtocol | None = None,
     plugin_storage_path: str | Path | None = None,
     plugin_assets: PluginAssetsProtocol | None = None,
@@ -135,6 +142,20 @@ async def build_cyrene_ai_runtime(
     if runtime_plugin_storage is None and plugin_storage_path is not None:
         runtime_plugin_storage = FileSystemPluginStorage(plugin_storage_path)
 
+    runtime_plugin_assets = plugin_assets
+    runtime_plugin_loaders = list(plugin_loaders or [])
+    if plugin_paths:
+        if runtime_plugin_assets is None:
+            runtime_plugin_assets = FileSystemPluginAssets()
+        if not isinstance(runtime_plugin_assets, FileSystemPluginAssets):
+            raise ValueError(
+                "plugin_paths require FileSystemPluginAssets or plugin_assets=None"
+            )
+        runtime_plugin_loaders.extend(
+            FileSystemPluginLoader(path, plugin_assets=runtime_plugin_assets)
+            for path in plugin_paths
+        )
+
     if plugin_task_scheduler is not None and (
         plugin_task_store is not None or plugin_task_database_path is not None
     ):
@@ -156,14 +177,24 @@ async def build_cyrene_ai_runtime(
         )
 
     runtime_bot_channel_registry = bot_channel_registry
+    concrete_bot_channel_registry: BotChannelRegistry | None = None
     if enable_memory_bot_channel or telegram_bot_token:
         if runtime_bot_channel_registry is None:
-            runtime_bot_channel_registry = BotChannelRegistry()
+            concrete_bot_channel_registry = BotChannelRegistry()
+            runtime_bot_channel_registry = concrete_bot_channel_registry
+        elif isinstance(runtime_bot_channel_registry, BotChannelRegistry):
+            concrete_bot_channel_registry = runtime_bot_channel_registry
+        else:
+            raise ValueError(
+                "memory and telegram bot channels require BotChannelRegistry"
+            )
     if enable_memory_bot_channel:
-        register_default_bot_channels(runtime_bot_channel_registry)
+        assert concrete_bot_channel_registry is not None
+        register_default_bot_channels(concrete_bot_channel_registry)
     if telegram_bot_token:
+        assert concrete_bot_channel_registry is not None
         register_telegram_bot_channel(
-            runtime_bot_channel_registry,
+            concrete_bot_channel_registry,
             token=telegram_bot_token,
         )
 
@@ -179,9 +210,9 @@ async def build_cyrene_ai_runtime(
         context_manager=context_manager,
         skill_manager=skill_manager,
         skill_registry=skill_registry if skill_path is not None else None,
-        plugin_loaders=plugin_loaders,
+        plugin_loaders=runtime_plugin_loaders,
         plugin_storage=runtime_plugin_storage,
-        plugin_assets=plugin_assets,
+        plugin_assets=runtime_plugin_assets,
         plugin_task_scheduler=plugin_task_scheduler,
         plugin_task_store=runtime_plugin_task_store,
         disabled_plugin_ids=disabled_plugin_ids,
@@ -195,4 +226,30 @@ async def build_cyrene_ai_runtime(
     )
 
 
-__all__ = ["build_cyrene_ai_runtime"]
+def load_filesystem_plugins(
+    runtime: CyreneAIRuntime,
+    plugin_paths: Sequence[str | Path],
+) -> list[PluginDefinition]:
+    """
+    通过默认文件系统适配器向已运行 runtime 安装插件。
+    """
+    if runtime.plugin_host is None:
+        raise ValueError("plugin host is not configured")
+    if runtime.plugin_assets is None:
+        runtime.plugin_assets = FileSystemPluginAssets()
+    if not isinstance(runtime.plugin_assets, FileSystemPluginAssets):
+        raise ValueError(
+            "filesystem plugin install requires FileSystemPluginAssets or plugin_assets=None"
+        )
+
+    definitions: list[PluginDefinition] = []
+    for path in plugin_paths:
+        definitions.extend(
+            runtime.plugin_host.load(
+                FileSystemPluginLoader(path, plugin_assets=runtime.plugin_assets)
+            )
+        )
+    return definitions
+
+
+__all__ = ["build_cyrene_ai_runtime", "load_filesystem_plugins"]

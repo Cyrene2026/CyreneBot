@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from contextlib import suppress
+from datetime import UTC, datetime
 
 from cyreneAI.application.chat.orchestrator import ChatOrchestrator
 from cyreneAI.application.generation.image_orchestrator import ImageGenerationOrchestrator
@@ -22,6 +25,7 @@ from cyreneAI.core.plugin.plugin_protocol import (
     PluginModuleProtocol,
     PluginOutboxNamespaceProtocol,
     PluginRegistryProtocol,
+    PluginReloadableSourceProtocol,
     PluginRuntimeContextProtocol,
     PluginStorageNamespaceProtocol,
     PluginTaskExecutorProtocol,
@@ -49,6 +53,8 @@ from cyreneAI.core.schema.plugin import (
     PluginMiddlewareRequest,
     PluginMiddlewareType,
     PluginPermission,
+    PluginPermissionAuditDecision,
+    PluginPermissionAuditRecord,
     PluginStatusReport,
     PluginTaskDefinition,
     PluginTaskRequest,
@@ -82,6 +88,10 @@ class PluginHost:
         self._skill_registry = skill_registry
         self._disabled_plugin_ids = set(disabled_plugin_ids or set())
         self._fail_fast = fail_fast
+        self._modules: dict[str, PluginModuleProtocol] = {}
+        self._reloaders: dict[str, PluginReloadableSourceProtocol] = {}
+        self._plugin_tool_names: dict[str, set[str]] = {}
+        self._plugin_skill_names: dict[str, set[str]] = {}
 
     def load(self, loader: PluginLoaderProtocol) -> list[PluginDefinition]:
         """
@@ -147,6 +157,7 @@ class PluginHost:
                 update={"enabled": False}
             )
             self._registry.register(definition)
+            self._remember_module_metadata(module, definition)
             self._registry.record_status(
                 _status_from_manifest(
                     manifest,
@@ -222,7 +233,95 @@ class PluginHost:
             event_executor=event_executor,
             middleware_executor=middleware_executor,
         )
+        self._remember_module_metadata(module, definition)
+        self._plugin_tool_names[definition.plugin_id] = setup_context.tool_names
+        self._plugin_skill_names[definition.plugin_id] = setup_context.skill_names
         return definition
+
+    def reload(self, plugin_id: str) -> PluginDefinition:
+        """
+        从已记录来源重新加载插件，并尽量在失败时恢复旧插件。
+        """
+        old_definition = self._registry.get_definition(plugin_id)
+        source = self._registry.get_source(plugin_id)
+        reloader = self._reloaders.get(plugin_id)
+        old_module = self._modules.get(plugin_id)
+        if reloader is None or old_module is None:
+            raise PluginStateError(f"插件 {plugin_id} 未配置可 reload 来源")
+
+        new_module = reloader.reload_plugin(source)
+        new_manifest = new_module.manifest
+        if new_manifest.plugin_id != plugin_id:
+            raise PluginConfigurationError(
+                f"插件 reload 后的 plugin_id 不匹配: {new_manifest.plugin_id}"
+            )
+
+        self._unregister_plugin(plugin_id)
+        try:
+            definition = self.register(new_module)
+            if definition is None:
+                raise PluginStateError(f"插件 {plugin_id} reload 后未注册")
+            if not old_definition.enabled and definition.enabled:
+                definition = self._registry.set_enabled(plugin_id, False)
+            self._registry.record_status(
+                PluginStatusReport(
+                    plugin_id=definition.plugin_id,
+                    status=(
+                        PluginLifecycleStatus.ENABLED
+                        if definition.enabled
+                        else PluginLifecycleStatus.DISABLED
+                    ),
+                    enabled=definition.enabled,
+                    name=definition.name,
+                    version=definition.version,
+                    reason="reloaded",
+                )
+            )
+            return definition
+        except Exception:
+            logger.exception("Plugin reload failed: plugin_id=%s", plugin_id)
+            self._unregister_plugin(plugin_id, missing_ok=True)
+            try:
+                restored = self.register(old_module)
+                if restored is not None and not old_definition.enabled and restored.enabled:
+                    self._registry.set_enabled(plugin_id, False)
+            except Exception:
+                logger.exception("Plugin reload rollback failed: plugin_id=%s", plugin_id)
+            raise
+
+    def _remember_module_metadata(
+        self,
+        module: PluginModuleProtocol,
+        definition: PluginDefinition,
+    ) -> None:
+        self._modules[definition.plugin_id] = module
+        source = getattr(module, "__cyreneai_plugin_source__", None)
+        if source is not None:
+            self._registry.record_source(source)
+        reloader = getattr(module, "__cyreneai_plugin_reloader__", None)
+        if reloader is not None and callable(getattr(reloader, "reload_plugin", None)):
+            self._reloaders[definition.plugin_id] = reloader
+
+    def _unregister_plugin(self, plugin_id: str, *, missing_ok: bool = False) -> None:
+        self._unregister_runtime_resources(plugin_id)
+        if self._registry.exists(plugin_id):
+            self._registry.unregister(plugin_id)
+        elif not missing_ok:
+            raise PluginNotFoundError(f"该插件 {plugin_id} 不存在")
+        self._modules.pop(plugin_id, None)
+        self._reloaders.pop(plugin_id, None)
+
+    def _unregister_runtime_resources(self, plugin_id: str) -> None:
+        if self._runtime.plugin_task_scheduler is not None:
+            self._runtime.plugin_task_scheduler.unregister_plugin(plugin_id)
+        if self._runtime.tool_registry is not None:
+            for name in self._plugin_tool_names.pop(plugin_id, set()):
+                with suppress(Exception):
+                    self._runtime.tool_registry.unregister(name)
+        if self._skill_registry is not None:
+            for name in self._plugin_skill_names.pop(plugin_id, set()):
+                with suppress(Exception):
+                    self._skill_registry.unregister(name)
 
 
 class ApplicationPluginRuntimeContext:
@@ -244,8 +343,33 @@ class ApplicationPluginRuntimeContext:
         self._image_orchestrator = ImageGenerationOrchestrator(runtime)
 
     def require_permission(self, permission: PluginPermission) -> None:
-        if permission not in self._permissions:
+        allowed = permission in self._permissions
+        self._record_permission_audit(
+            permission,
+            PluginPermissionAuditDecision.ALLOWED
+            if allowed
+            else PluginPermissionAuditDecision.DENIED,
+        )
+        if not allowed:
             raise PluginAuthorizationError(f"插件缺少权限: {permission}")
+
+    def _record_permission_audit(
+        self,
+        permission: PluginPermission,
+        decision: PluginPermissionAuditDecision,
+    ) -> None:
+        if self._runtime.plugin_manager is None:
+            return
+        self._runtime.plugin_manager.record_permission_audit(
+            PluginPermissionAuditRecord(
+                audit_id=uuid.uuid4().hex,
+                plugin_id=self._plugin_id,
+                permission=permission,
+                decision=decision,
+                reason=None if decision == PluginPermissionAuditDecision.ALLOWED else "missing_permission",
+                created_at=datetime.now(UTC),
+            )
+        )
 
     async def generate_image(
         self,
@@ -442,6 +566,8 @@ class ApplicationPluginSetupContext:
         self._task_executor_names: set[str] = set()
         self._event_executor_names: set[str] = set()
         self._middleware_executor_names: set[str] = set()
+        self._tool_names: set[str] = set()
+        self._skill_names: set[str] = set()
 
     @property
     def manifest(self) -> PluginManifest:
@@ -450,6 +576,14 @@ class ApplicationPluginSetupContext:
     @property
     def runtime(self) -> PluginRuntimeContextProtocol:
         return self._runtime_context
+
+    @property
+    def tool_names(self) -> set[str]:
+        return set(self._tool_names)
+
+    @property
+    def skill_names(self) -> set[str]:
+        return set(self._skill_names)
 
     def register_command(
         self,
@@ -515,6 +649,7 @@ class ApplicationPluginSetupContext:
         if self._runtime.tool_registry is None:
             raise PluginStateError("runtime 未配置 tool registry")
         self._runtime.tool_registry.register(definition, executor)
+        self._tool_names.add(definition.name)
 
     def register_skill(self, definition: SkillDefinition) -> None:
         self._runtime_context.require_permission(PluginPermission.SKILL)
@@ -522,6 +657,7 @@ class ApplicationPluginSetupContext:
         if self._skill_registry is None:
             raise PluginStateError("runtime 未配置 skill registry")
         self._skill_registry.register(definition)
+        self._skill_names.add(definition.name)
 
     def build_definition(self) -> PluginDefinition:
         definition = self._manifest.to_definition()

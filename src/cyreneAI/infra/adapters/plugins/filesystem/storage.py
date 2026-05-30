@@ -63,6 +63,16 @@ class FileSystemPluginStorageNamespace:
         async with self._lock(key_name):
             self._path(key_name).unlink(missing_ok=True)
 
+    async def list_keys(self) -> list[str]:
+        namespace_path = self._root_path / self._namespace
+        if not namespace_path.exists():
+            return []
+        return sorted(
+            path.stem
+            for path in namespace_path.glob("*.json")
+            if path.is_file()
+        )
+
     async def update(
         self,
         key: str,

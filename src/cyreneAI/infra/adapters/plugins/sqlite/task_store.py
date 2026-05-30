@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from cyreneAI.core.errors.plugin import PluginNotFoundError
 from cyreneAI.core.schema.plugin import PluginScheduledTask, PluginTaskStatus
 from cyreneAI.infra.adapters.plugins.sqlite.tables import plugin_task_instances
 
@@ -41,14 +42,29 @@ class SQLitePluginTaskStore:
         plugin_id: str | None = None,
         task_name: str | None = None,
     ) -> list[PluginScheduledTask]:
-        statement = select(plugin_task_instances).where(
-            plugin_task_instances.c.status.in_(
-                [
-                    PluginTaskStatus.PENDING.value,
-                    PluginTaskStatus.RUNNING.value,
-                ]
-            )
+        return await self.list_tasks(
+            plugin_id=plugin_id,
+            task_name=task_name,
+            statuses=[
+                PluginTaskStatus.PENDING,
+                PluginTaskStatus.RUNNING,
+            ],
         )
+
+    async def list_tasks(
+        self,
+        *,
+        plugin_id: str | None = None,
+        task_name: str | None = None,
+        statuses: list[PluginTaskStatus] | None = None,
+    ) -> list[PluginScheduledTask]:
+        statement = select(plugin_task_instances)
+        if statuses is not None:
+            statement = statement.where(
+                plugin_task_instances.c.status.in_(
+                    [status.value for status in statuses]
+                )
+            )
         if plugin_id is not None:
             statement = statement.where(plugin_task_instances.c.plugin_id == plugin_id)
         if task_name is not None:
@@ -59,6 +75,17 @@ class SQLitePluginTaskStore:
             result = await connection.execute(statement)
             rows = result.mappings().all()
         return [_task_from_row(dict(row)) for row in rows]
+
+    async def get_task(self, task_id: str) -> PluginScheduledTask:
+        statement = select(plugin_task_instances).where(
+            plugin_task_instances.c.task_id == task_id
+        )
+        async with self._engine.connect() as connection:
+            result = await connection.execute(statement)
+            row = result.mappings().one_or_none()
+        if row is None:
+            raise PluginNotFoundError(f"插件任务实例 {task_id} 不存在")
+        return _task_from_row(dict(row))
 
     async def update_task_status(
         self,

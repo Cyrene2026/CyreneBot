@@ -23,6 +23,8 @@ from cyreneAI.core.schema.plugin import (
     PluginMiddlewareDefinition,
     PluginMiddlewareRequest,
     PluginMiddlewareType,
+    PluginPermissionAuditRecord,
+    PluginSourceInfo,
     PluginStatusReport,
     PluginTaskDefinition,
 )
@@ -50,6 +52,18 @@ class PluginManager:
         获取单个插件定义。
         """
         return self._registry.get_definition(plugin_id)
+
+    def enable_plugin(self, plugin_id: str) -> PluginDefinition:
+        """
+        启用插件。
+        """
+        return self._registry.set_enabled(plugin_id, True)
+
+    def disable_plugin(self, plugin_id: str) -> PluginDefinition:
+        """
+        禁用插件。
+        """
+        return self._registry.set_enabled(plugin_id, False)
 
     def list_plugin_commands(self, plugin_id: str) -> list[PluginCommandDefinition]:
         """
@@ -129,6 +143,33 @@ class PluginManager:
         列出插件生命周期状态。
         """
         return self._registry.list_statuses()
+
+    def get_plugin_source(self, plugin_id: str) -> PluginSourceInfo:
+        """
+        获取单个插件的加载来源。
+        """
+        return self._registry.get_source(plugin_id)
+
+    def list_plugin_sources(self) -> list[PluginSourceInfo]:
+        """
+        列出插件加载来源。
+        """
+        return self._registry.list_sources()
+
+    def record_permission_audit(self, record: PluginPermissionAuditRecord) -> None:
+        """
+        记录插件权限检查审计。
+        """
+        self._registry.record_permission_audit(record)
+
+    def list_permission_audit(
+        self,
+        plugin_id: str | None = None,
+    ) -> list[PluginPermissionAuditRecord]:
+        """
+        列出插件权限检查审计。
+        """
+        return self._registry.list_permission_audit(plugin_id)
 
     async def execute_command(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.core.schema.bot import BotCommand
@@ -10,8 +11,11 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandResult,
     PluginManifest,
     PluginPermission,
+    PluginScheduledTask,
+    PluginTaskStatus,
 )
 from cyreneAI.api import CyreneBot, Depends
+from cyreneAI.infra.adapters.plugins.sqlite import create_sqlite_plugin_task_store
 
 
 class _FakePluginLoader:
@@ -55,6 +59,49 @@ def test_plugin_task_scheduler_restores_pending_sqlite_task(tmp_path) -> None:
             await asyncio.wait_for(called.wait(), timeout=1)
         finally:
             await second_runtime.close()
+
+    asyncio.run(run())
+
+
+def test_plugin_task_scheduler_retries_failed_sqlite_task(tmp_path) -> None:
+    database_path = tmp_path / "plugin_tasks.db"
+
+    async def run() -> None:
+        now = datetime.now(UTC)
+        store = await create_sqlite_plugin_task_store(database_path)
+        try:
+            await store.add_task(
+                PluginScheduledTask(
+                    task_id="failed-task",
+                    plugin_id="thirdparty.tasks",
+                    task_name="conversation_end",
+                    run_at=now - timedelta(seconds=1),
+                    payload={"user_id": "user-1"},
+                    key="retry-user-1",
+                    status=PluginTaskStatus.FAILED,
+                    last_error="boom",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        finally:
+            await store.close()
+
+        called = asyncio.Event()
+        plugin = _build_scheduler_plugin(called)
+        runtime = await build_cyrene_ai_runtime(
+            plugin_loaders=[_FakePluginLoader(plugin)],
+            plugin_task_database_path=database_path,
+            register_builtin_plugins=False,
+        )
+        try:
+            assert runtime.plugin_task_scheduler is not None
+            new_task_id = await runtime.plugin_task_scheduler.retry_task("failed-task")
+
+            assert new_task_id.startswith("thirdparty.tasks:conversation_end:")
+            await asyncio.wait_for(called.wait(), timeout=1)
+        finally:
+            await runtime.close()
 
     asyncio.run(run())
 

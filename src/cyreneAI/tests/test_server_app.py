@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import UTC, datetime
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
 
+from cyreneAI.api.cli import init_plugin_project
+from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.context.builder import ContextWindowBuilder
@@ -36,14 +40,18 @@ from cyreneAI.core.schema.plugin import (
     PluginCommandArgumentDefinition,
     PluginCommandArgumentKind,
     PluginCommandDefinition,
+    PluginCommandRequest,
+    PluginCommandResult,
     PluginDefinition,
     PluginEventDefinition,
     PluginEventType,
     PluginLifecycleStatus,
     PluginMiddlewareDefinition,
     PluginMiddlewareType,
+    PluginScheduledTask,
     PluginStatusReport,
     PluginTaskDefinition,
+    PluginTaskStatus,
 )
 from cyreneAI.core.schema.provider import (
     ProviderConfig,
@@ -251,6 +259,155 @@ def _plugin_client() -> TestClient:
         provider_manager=ProviderManager(ProviderFactory()),
         context_builder=ContextWindowBuilder(),
         plugin_manager=PluginManager(registry),
+    )
+    return TestClient(
+        create_app(
+            runtime,
+            settings=ServerSettings(auth_enabled=False),
+        )
+    )
+
+
+class FakePluginExecutor:
+    async def execute(self, request: PluginCommandRequest) -> PluginCommandResult:
+        return PluginCommandResult(metadata={"command": request.command.name})
+
+
+def _managed_plugin_client() -> TestClient:
+    registry = PluginRegistry()
+    registry.register(
+        PluginDefinition(
+            plugin_id="demo.hello",
+            name="Demo Hello",
+            description="Demo plugin.",
+            version="0.1.0",
+            commands=[
+                PluginCommandDefinition(
+                    name="hello",
+                    description="Say hello.",
+                    usage="/hello",
+                )
+            ],
+        ),
+        FakePluginExecutor(),
+    )
+    runtime = CyreneAIRuntime(
+        provider_manager=ProviderManager(ProviderFactory()),
+        context_builder=ContextWindowBuilder(),
+        plugin_manager=PluginManager(registry),
+    )
+    return TestClient(
+        create_app(
+            runtime,
+            settings=ServerSettings(auth_enabled=False),
+        )
+    )
+
+
+class FakePluginTaskScheduler:
+    def __init__(self) -> None:
+        now = datetime.now(UTC)
+        self.canceled: list[str] = []
+        self.tasks = [
+            PluginScheduledTask(
+                task_id="task-1",
+                plugin_id="demo.hello",
+                task_name="follow_up",
+                run_at=now,
+                payload={"session_id": "s1"},
+                key="follow:s1",
+                status=PluginTaskStatus.FAILED,
+                last_error="boom",
+                created_at=now,
+                updated_at=now,
+            )
+        ]
+
+    async def list_tasks(
+        self,
+        *,
+        plugin_id=None,
+        task_name=None,
+        statuses=None,
+    ):
+        tasks = list(self.tasks)
+        if plugin_id is not None:
+            tasks = [task for task in tasks if task.plugin_id == plugin_id]
+        if task_name is not None:
+            tasks = [task for task in tasks if task.task_name == task_name]
+        if statuses is not None:
+            tasks = [task for task in tasks if task.status in statuses]
+        return tasks
+
+    async def cancel_task(self, task_id: str) -> None:
+        self.canceled.append(task_id)
+
+    async def retry_task(self, task_id: str) -> str:
+        return f"{task_id}:retry"
+
+    def unregister_plugin(self, plugin_id: str) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        pass
+
+
+def _plugin_task_client() -> TestClient:
+    runtime = CyreneAIRuntime(
+        provider_manager=ProviderManager(ProviderFactory()),
+        context_builder=ContextWindowBuilder(),
+        plugin_task_scheduler=FakePluginTaskScheduler(),
+    )
+    return TestClient(
+        create_app(
+            runtime,
+            settings=ServerSettings(auth_enabled=False),
+        )
+    )
+
+
+class FakePluginStorageNamespace:
+    def __init__(self) -> None:
+        self.values = {"state": {"ready": True}, "count": 2}
+
+    async def get(self, key: str, default=None):
+        return self.values.get(key, default)
+
+    async def set(self, key: str, value) -> None:
+        self.values[key] = value
+
+    async def delete(self, key: str) -> None:
+        self.values.pop(key, None)
+
+    async def list_keys(self) -> list[str]:
+        return sorted(self.values)
+
+
+class FakePluginStorage:
+    def __init__(self) -> None:
+        self.namespace_value = FakePluginStorageNamespace()
+
+    def namespace(self, plugin_id: str) -> FakePluginStorageNamespace:
+        return self.namespace_value
+
+    async def close(self) -> None:
+        pass
+
+
+def _plugin_storage_client() -> TestClient:
+    registry = PluginRegistry()
+    registry.register(
+        PluginDefinition(
+            plugin_id="demo.hello",
+            name="Demo Hello",
+            description="Demo plugin.",
+        )
+    )
+    runtime = CyreneAIRuntime(
+        provider_manager=ProviderManager(ProviderFactory()),
+        context_builder=ContextWindowBuilder(),
+        plugin_manager=PluginManager(registry),
+        plugin_storage=FakePluginStorage(),
     )
     return TestClient(
         create_app(
@@ -555,6 +712,123 @@ def test_server_lists_plugins_commands_events_tasks_and_statuses() -> None:
     assert plugin_middlewares.json()["middlewares"][0]["middleware_type"] == "llm"
     assert plugin_status.status_code == 200
     assert plugin_status.json()["plugin_id"] == "demo.hello"
+
+
+def test_server_inspects_enables_and_disables_plugin() -> None:
+    client = _managed_plugin_client()
+
+    inspect_response = client.get("/plugins/demo.hello/inspect")
+    disable_response = client.post("/plugins/demo.hello/disable")
+    disabled_commands = client.get("/plugins/commands")
+    enable_response = client.post("/plugins/demo.hello/enable")
+
+    assert inspect_response.status_code == 200
+    assert inspect_response.json()["definition"]["plugin_id"] == "demo.hello"
+    assert inspect_response.json()["commands"][0]["name"] == "hello"
+    assert disable_response.status_code == 200
+    assert disable_response.json()["enabled"] is False
+    assert disabled_commands.json()["commands"] == []
+    assert enable_response.status_code == 200
+    assert enable_response.json()["enabled"] is True
+
+
+def test_server_reload_requires_source_tracking() -> None:
+    response = _managed_plugin_client().post("/plugins/demo.hello/reload")
+
+    assert response.status_code == 503
+
+
+def test_server_installs_and_reloads_filesystem_plugin(tmp_path) -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime(register_builtin_plugins=False)
+        client = TestClient(
+            create_app(runtime, settings=ServerSettings(auth_enabled=False))
+        )
+        project_path = init_plugin_project(tmp_path / "my_plugin")
+
+        try:
+            install_response = client.post(
+                "/plugins/install-path",
+                json={"path": str(project_path)},
+            )
+
+            manifest_path = project_path / "plugin.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["version"] = "0.2.0"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            reload_response = client.post("/plugins/my_plugin/reload")
+            inspect_response = client.get("/plugins/my_plugin/inspect")
+
+            assert install_response.status_code == 200
+            assert install_response.json()["installed"][0]["plugin_id"] == "my_plugin"
+            assert install_response.json()["sources"][0]["source_type"] == "filesystem"
+            assert reload_response.status_code == 200
+            assert reload_response.json()["metadata"]["version"] == "0.2.0"
+            assert inspect_response.json()["source"]["version"] == "0.2.0"
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_server_validates_plugin_path(tmp_path) -> None:
+    project_path = init_plugin_project(tmp_path / "my_plugin")
+
+    response = _plugin_client().post(
+        "/plugins/validate-path",
+        json={"path": str(project_path)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is True
+    assert response.json()["plugin_id"] == "my_plugin"
+
+
+def test_server_reports_invalid_plugin_path(tmp_path) -> None:
+    response = _plugin_client().post(
+        "/plugins/validate-path",
+        json={"path": str(tmp_path / "missing")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    assert response.json()["errors"]
+
+
+def test_server_manages_plugin_task_instances() -> None:
+    client = _plugin_task_client()
+
+    list_response = client.get(
+        "/plugins/tasks/instances",
+        params={"plugin_id": "demo.hello", "status": "failed"},
+    )
+    cancel_response = client.post("/plugins/tasks/task-1/cancel")
+    retry_response = client.post("/plugins/tasks/task-1/retry")
+
+    assert list_response.status_code == 200
+    assert list_response.json()["tasks"][0]["task_id"] == "task-1"
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["action"] == "cancel_task"
+    assert retry_response.status_code == 200
+    assert retry_response.json()["metadata"]["new_task_id"] == "task-1:retry"
+
+
+def test_server_debugs_plugin_storage() -> None:
+    client = _plugin_storage_client()
+
+    keys_response = client.get("/plugins/demo.hello/storage")
+    value_response = client.get("/plugins/demo.hello/storage/state")
+    delete_response = client.delete("/plugins/demo.hello/storage/count")
+    cleared_response = client.delete("/plugins/demo.hello/storage")
+
+    assert keys_response.status_code == 200
+    assert keys_response.json()["keys"] == ["count", "state"]
+    assert value_response.status_code == 200
+    assert value_response.json()["value"] == {"ready": True}
+    assert delete_response.status_code == 200
+    assert delete_response.json()["metadata"]["key"] == "count"
+    assert cleared_response.status_code == 200
+    assert cleared_response.json()["metadata"]["deleted_keys"] == ["state"]
 
 
 def test_server_returns_404_for_missing_plugin_detail() -> None:

@@ -296,6 +296,10 @@ def test_plugin_runtime_context_requires_declared_permission() -> None:
             assert plugin.runtime_context is not None
             with pytest.raises(PluginAuthorizationError):
                 plugin.runtime_context.list_providers()
+            assert runtime.plugin_manager is not None
+            audit = runtime.plugin_manager.list_permission_audit("thirdparty.hello")
+            assert audit[0].permission == PluginPermission.PROVIDER_READ
+            assert audit[0].decision == "denied"
         finally:
             await runtime.close()
 
@@ -320,6 +324,10 @@ def test_plugin_runtime_context_allows_declared_permission() -> None:
         try:
             assert plugin.runtime_context is not None
             assert plugin.runtime_context.list_providers() == []
+            assert runtime.plugin_manager is not None
+            audit = runtime.plugin_manager.list_permission_audit("thirdparty.providers")
+            assert audit[0].permission == PluginPermission.PROVIDER_READ
+            assert audit[0].decision == "allowed"
         finally:
             await runtime.close()
 

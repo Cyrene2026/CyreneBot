@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import re
 import sys
 from contextlib import suppress
+from datetime import UTC, datetime
 from json import JSONDecodeError
 from pathlib import Path
 from types import ModuleType
@@ -13,7 +15,13 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
-from cyreneAI.core.schema.plugin import PluginManifest
+from cyreneAI.core.schema.plugin import (
+    PluginIsolationMode,
+    PluginManifest,
+    PluginSignatureStatus,
+    PluginSourceInfo,
+    PluginSourceType,
+)
 from cyreneAI.infra.adapters.plugins.filesystem.assets import FileSystemPluginAssets
 
 
@@ -44,6 +52,19 @@ class FileSystemPluginLoader:
             _load_plugin_project(path, plugin_assets=self._plugin_assets)
             for path in _plugin_project_paths(self._path)
         ]
+
+    def reload_plugin(self, source: PluginSourceInfo) -> Any:
+        """
+        按已记录的文件系统来源重新加载单个插件。
+        """
+        if source.source_type != PluginSourceType.FILESYSTEM or source.path is None:
+            raise PluginConfigurationError(
+                f"Plugin {source.plugin_id} does not have a filesystem source"
+            )
+        return _load_plugin_project(
+            Path(source.path),
+            plugin_assets=self._plugin_assets,
+        )
 
 
 def _plugin_project_paths(path: Path) -> list[Path]:
@@ -106,6 +127,13 @@ def _load_plugin_project(
             f"Plugin {manifest.plugin_id} object must support configure(manifest)"
         )
     configure(manifest)
+    source_info = _build_source_info(project_path, manifest, entrypoint)
+    setattr(plugin, "__cyreneai_plugin_source__", source_info)
+    setattr(
+        plugin,
+        "__cyreneai_plugin_reloader__",
+        FileSystemPluginLoader(project_path, plugin_assets=plugin_assets),
+    )
     return plugin
 
 
@@ -161,3 +189,117 @@ def _load_entrypoint_module(
 def _module_name(plugin_id: str, entrypoint: Path) -> str:
     safe_plugin_id = re.sub(r"[^a-zA-Z0-9_]", "_", plugin_id)
     return f"_cyreneai_plugin_{safe_plugin_id}_{abs(hash(str(entrypoint)))}"
+
+
+def _build_source_info(
+    project_path: Path,
+    manifest: PluginManifest,
+    entrypoint: Path,
+) -> PluginSourceInfo:
+    project_root = project_path.resolve()
+    content_hash = _project_content_hash(project_root)
+    signature = _validate_signature(project_root, content_hash)
+    if signature["status"] in {
+        PluginSignatureStatus.INVALID,
+        PluginSignatureStatus.UNSUPPORTED,
+    }:
+        raise PluginInputError(
+            f"Plugin {manifest.plugin_id} signature validation failed: "
+            f"{signature.get('error')}"
+        )
+    return PluginSourceInfo(
+        plugin_id=manifest.plugin_id,
+        source_type=PluginSourceType.FILESYSTEM,
+        path=str(project_root),
+        manifest_path=str((project_path / "plugin.json").resolve()),
+        entrypoint=str(entrypoint),
+        version=manifest.version,
+        content_hash=content_hash,
+        loaded_at=datetime.now(UTC),
+        isolation_mode=_manifest_isolation_mode(manifest),
+        signature_status=signature["status"],
+        signature_path=signature.get("path"),
+        signed_by=signature.get("signed_by"),
+        signature_error=signature.get("error"),
+    )
+
+
+def _project_content_hash(project_path: Path) -> str:
+    digest = hashlib.sha256()
+    for path in _hashable_project_files(project_path):
+        relative_path = path.relative_to(project_path).as_posix()
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _hashable_project_files(project_path: Path) -> list[Path]:
+    ignored_names = {
+        ".cyreneai-plugin-signature.json",
+    }
+    ignored_suffixes = {
+        ".pyc",
+        ".pyo",
+    }
+    files: list[Path] = []
+    for path in project_path.rglob("*"):
+        if not path.is_file():
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        if path.name in ignored_names or path.suffix in ignored_suffixes:
+            continue
+        files.append(path)
+    return sorted(files, key=lambda item: item.relative_to(project_path).as_posix())
+
+
+def _validate_signature(
+    project_path: Path,
+    content_hash: str,
+) -> dict[str, Any]:
+    signature_path = project_path / ".cyreneai-plugin-signature.json"
+    if not signature_path.is_file():
+        return {"status": PluginSignatureStatus.UNSIGNED}
+
+    try:
+        payload = json.loads(signature_path.read_text(encoding="utf-8"))
+    except JSONDecodeError as exc:
+        raise PluginInputError(
+            f"Plugin signature {signature_path} must contain valid JSON",
+            cause=exc,
+        ) from exc
+
+    algorithm = str(payload.get("algorithm", "")).lower()
+    expected_hash = payload.get("content_hash")
+    signed_by = payload.get("signed_by")
+    if algorithm != "sha256":
+        return {
+            "status": PluginSignatureStatus.UNSUPPORTED,
+            "path": str(signature_path.resolve()),
+            "signed_by": signed_by if isinstance(signed_by, str) else None,
+            "error": f"unsupported signature algorithm: {algorithm or '(missing)'}",
+        }
+    if expected_hash != content_hash:
+        return {
+            "status": PluginSignatureStatus.INVALID,
+            "path": str(signature_path.resolve()),
+            "signed_by": signed_by if isinstance(signed_by, str) else None,
+            "error": "signature content_hash does not match plugin content",
+        }
+    return {
+        "status": PluginSignatureStatus.VALID,
+        "path": str(signature_path.resolve()),
+        "signed_by": signed_by if isinstance(signed_by, str) else None,
+    }
+
+
+def _manifest_isolation_mode(manifest: PluginManifest) -> PluginIsolationMode:
+    value = manifest.metadata.get("isolation")
+    if isinstance(value, dict):
+        value = value.get("mode")
+    if isinstance(value, str):
+        with suppress(ValueError):
+            return PluginIsolationMode(value)
+    return PluginIsolationMode.IN_PROCESS

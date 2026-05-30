@@ -11,6 +11,17 @@ from cyreneAI.core.schema.message import (
     Message,
     MessageRole,
 )
+from cyreneAI.core.schema.plugin import (
+    PluginCommandDefinition,
+    PluginDefinition,
+    PluginEventDefinition,
+    PluginMiddlewareDefinition,
+    PluginPermissionAuditRecord,
+    PluginScheduledTask,
+    PluginSourceInfo,
+    PluginStatusReport,
+    PluginTaskDefinition,
+)
 
 
 class HTTPMessage(CyreneAISchema):
@@ -81,10 +92,73 @@ class ServerSettings(CyreneAISchema):
     session_ttl_seconds: int = 12 * 60 * 60
 
 
+class PluginPathRequestBody(CyreneAISchema):
+    path: str
+
+
+class PluginOperationResult(CyreneAISchema):
+    action: str
+    accepted: bool = True
+    plugin_id: str | None = None
+    detail: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginInstallReport(CyreneAISchema):
+    installed: list[PluginDefinition] = Field(default_factory=list)
+    sources: list[PluginSourceInfo] = Field(default_factory=list)
+
+
+class PluginInspectionReport(CyreneAISchema):
+    definition: PluginDefinition
+    status: PluginStatusReport | None = None
+    source: PluginSourceInfo | None = None
+    commands: list[PluginCommandDefinition] = []
+    events: list[PluginEventDefinition] = []
+    tasks: list[PluginTaskDefinition] = []
+    middlewares: list[PluginMiddlewareDefinition] = []
+
+
+class PluginValidationReport(CyreneAISchema):
+    path: str
+    valid: bool
+    plugin_id: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class PluginStorageKeysReport(CyreneAISchema):
+    plugin_id: str
+    keys: list[str] = Field(default_factory=list)
+
+
+class PluginStorageValueReport(CyreneAISchema):
+    plugin_id: str
+    key: str
+    value: Any
+
+
+class PluginTaskInstancesReport(CyreneAISchema):
+    tasks: list[PluginScheduledTask] = []
+
+
+class PluginPermissionAuditReport(CyreneAISchema):
+    records: list[PluginPermissionAuditRecord] = Field(default_factory=list)
+
+
 __all__ = [
     "ChannelWebhookRequestBody",
     "ChatRequestBody",
     "HTTPMessage",
     "ImageGenerationRequestBody",
+    "PluginInstallReport",
+    "PluginInspectionReport",
+    "PluginOperationResult",
+    "PluginPathRequestBody",
+    "PluginPermissionAuditReport",
+    "PluginStorageKeysReport",
+    "PluginStorageValueReport",
+    "PluginTaskInstancesReport",
+    "PluginValidationReport",
     "ServerSettings",
 ]

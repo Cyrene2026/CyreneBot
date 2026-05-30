@@ -39,12 +39,17 @@ def test_sqlite_plugin_task_store_lifecycle(tmp_path) -> None:
         )
         assert len(pending_tasks) == 1
         assert pending_tasks[0].payload == {"user_id": "user-1"}
+        assert (await store.get_task("task-1")).task_id == "task-1"
 
         await store.update_task_status("task-1", PluginTaskStatus.RUNNING)
         assert [task.task_id for task in await store.list_pending_tasks()] == ["task-1"]
 
         await store.update_task_status("task-1", PluginTaskStatus.COMPLETED)
         assert await store.list_pending_tasks() == []
+        completed_tasks = await store.list_tasks(
+            statuses=[PluginTaskStatus.COMPLETED],
+        )
+        assert [task.task_id for task in completed_tasks] == ["task-1"]
         await store.close()
 
         next_store = await create_sqlite_plugin_task_store(database_path)

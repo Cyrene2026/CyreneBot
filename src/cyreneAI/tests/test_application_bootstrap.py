@@ -292,6 +292,58 @@ def test_build_cyrene_ai_runtime_can_create_plugin_storage(tmp_path) -> None:
     asyncio.run(_run_build_runtime_can_create_plugin_storage(tmp_path))
 
 
+async def _run_build_runtime_loads_plugin_paths(tmp_path) -> None:
+    plugin_path = tmp_path / "plugins" / "demo_hello"
+    plugin_path.mkdir(parents=True)
+    (plugin_path / "plugin.json").write_text(
+        json.dumps(
+            {
+                "plugin_id": "demo.hello",
+                "name": "Demo Hello",
+                "description": "Demo plugin.",
+                "entrypoint": "main.py",
+                "capabilities": ["bot_command"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_path / "main.py").write_text(
+        "\n".join(
+            [
+                "from cyreneAI.api import CyreneBot",
+                "",
+                "plugin = CyreneBot()",
+                "",
+                "@plugin.command",
+                "def hello(name: str = 'world'):",
+                "    return f'Hello, {name}!'",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    runtime = await build_cyrene_ai_runtime(
+        plugin_paths=[plugin_path],
+        register_builtin_plugins=False,
+    )
+    try:
+        assert runtime.plugin_assets is not None
+        assert runtime.plugin_manager is not None
+        assert [
+            plugin.plugin_id for plugin in runtime.plugin_manager.list_plugins()
+        ] == ["demo.hello"]
+        assert [
+            command.name for command in runtime.plugin_manager.list_commands()
+        ] == ["hello"]
+    finally:
+        await runtime.close()
+
+
+def test_build_cyrene_ai_runtime_loads_plugin_paths(tmp_path) -> None:
+    asyncio.run(_run_build_runtime_loads_plugin_paths(tmp_path))
+
+
 async def _run_build_runtime_rejects_duplicate_plugin_storage_config(tmp_path) -> None:
     with pytest.raises(ValueError):
         await build_cyrene_ai_runtime(

@@ -9,6 +9,7 @@ from typing import Any
 from cyreneAI.core.errors.plugin import (
     PluginConfigurationError,
     PluginNotFoundError,
+    PluginStateError,
 )
 from cyreneAI.core.plugin.plugin_protocol import (
     PluginTaskExecutorProtocol,
@@ -67,6 +68,24 @@ class ApplicationPluginTaskScheduler:
             self._schedule_declared_task(plugin_id, stored_definition)
             self._schedule_restore(plugin_id, stored_definition.name)
 
+    def unregister_plugin(self, plugin_id: str) -> None:
+        """
+        注销指定插件的任务定义，并取消尚未完成的内存任务。
+        """
+        for key in list(self._definitions):
+            if key[0] == plugin_id:
+                self._definitions.pop(key, None)
+                self._executors.pop(key, None)
+
+        for task_id, task in list(self._managed_tasks.items()):
+            if task_id.startswith(f"{plugin_id}:"):
+                self._managed_tasks.pop(task_id, None)
+                task.cancel()
+
+        for task_key in list(self._task_keys):
+            if task_key[0] == plugin_id:
+                self._task_keys.pop(task_key, None)
+
     async def start(self) -> None:
         if self._started:
             return
@@ -89,6 +108,38 @@ class ApplicationPluginTaskScheduler:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._store is not None:
             await self._store.close()
+
+    async def list_tasks(
+        self,
+        *,
+        plugin_id: str | None = None,
+        task_name: str | None = None,
+        statuses: list[PluginTaskStatus] | None = None,
+    ) -> list[PluginScheduledTask]:
+        if self._store is None:
+            return []
+        return await self._store.list_tasks(
+            plugin_id=plugin_id,
+            task_name=_normalize_task_name(task_name) if task_name else None,
+            statuses=statuses,
+        )
+
+    async def cancel_task(self, task_id: str) -> None:
+        await self.cancel(task_id)
+
+    async def retry_task(self, task_id: str) -> str:
+        if self._store is None:
+            raise PluginStateError("runtime 未配置 plugin task store")
+        task_record = await self._store.get_task(task_id)
+        if task_record.status != PluginTaskStatus.FAILED:
+            raise PluginConfigurationError("只能重试 failed 插件任务")
+        return await self.schedule_once(
+            task_record.plugin_id,
+            task_record.task_name,
+            delay_seconds=0,
+            payload=task_record.payload,
+            key=task_record.key,
+        )
 
     async def schedule_once(
         self,

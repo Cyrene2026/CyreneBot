@@ -13,6 +13,8 @@ from cyreneAI.core.schema.plugin import (
     PluginLifecycleStatus,
     PluginMiddlewareDefinition,
     PluginMiddlewareType,
+    PluginPermissionAuditRecord,
+    PluginSourceInfo,
     PluginStatusReport,
     PluginTaskDefinition,
 )
@@ -30,6 +32,8 @@ class PluginRegistry:
         self._middleware_executors: dict[str, PluginMiddlewareExecutorProtocol] = {}
         self._command_to_plugin: dict[str, str] = {}
         self._statuses: dict[str, PluginStatusReport] = {}
+        self._sources: dict[str, PluginSourceInfo] = {}
+        self._permission_audit: list[PluginPermissionAuditRecord] = []
 
     def register(
         self,
@@ -75,6 +79,7 @@ class PluginRegistry:
         self._event_executors.pop(plugin_id, None)
         self._middleware_executors.pop(plugin_id, None)
         self._statuses.pop(plugin_id, None)
+        self._sources.pop(plugin_id, None)
 
     def get_definition(self, plugin_id: str) -> PluginDefinition:
         """
@@ -100,6 +105,34 @@ class PluginRegistry:
         判断插件是否存在。
         """
         return plugin_id in self._definitions
+
+    def set_enabled(self, plugin_id: str, enabled: bool) -> PluginDefinition:
+        """
+        启用或禁用插件。
+        """
+        definition = self.get_definition(plugin_id)
+        if definition.enabled == enabled:
+            return definition
+
+        if enabled:
+            self._validate_can_enable(definition)
+
+        for command_name in self._enabled_command_names(definition):
+            self._command_to_plugin.pop(command_name, None)
+
+        updated_definition = definition.model_copy(update={"enabled": enabled})
+        if enabled:
+            command_names = self._enabled_command_names(updated_definition)
+            for command_name in command_names:
+                owner_plugin_id = self._command_to_plugin.get(command_name)
+                if owner_plugin_id is not None and owner_plugin_id != plugin_id:
+                    raise ConflictError(f"该插件命令 {command_name} 已注册")
+            for command_name in command_names:
+                self._command_to_plugin[command_name] = plugin_id
+
+        self._definitions[plugin_id] = updated_definition
+        self.record_status(_status_from_definition(updated_definition))
+        return updated_definition
 
     def list_definitions(self) -> list[PluginDefinition]:
         """
@@ -167,6 +200,50 @@ class PluginRegistry:
         for plugin_id, definition in self._definitions.items():
             statuses.setdefault(plugin_id, _status_from_definition(definition))
         return list(statuses.values())
+
+    def record_source(self, source: PluginSourceInfo) -> None:
+        """
+        记录插件加载来源。
+        """
+        self._sources[source.plugin_id] = source
+
+    def get_source(self, plugin_id: str) -> PluginSourceInfo:
+        """
+        获取插件加载来源。
+        """
+        self.get_definition(plugin_id)
+        source = self._sources.get(plugin_id)
+        if source is None:
+            raise PluginStateError(f"该插件 {plugin_id} 未记录加载来源")
+        return source
+
+    def list_sources(self) -> list[PluginSourceInfo]:
+        """
+        列出插件加载来源。
+        """
+        return list(self._sources.values())
+
+    def record_permission_audit(self, record: PluginPermissionAuditRecord) -> None:
+        """
+        记录插件权限检查审计。
+        """
+        self._permission_audit.append(record)
+
+    def list_permission_audit(
+        self,
+        plugin_id: str | None = None,
+    ) -> list[PluginPermissionAuditRecord]:
+        """
+        列出插件权限检查审计。
+        """
+        if plugin_id is None:
+            return list(self._permission_audit)
+        self.get_definition(plugin_id)
+        return [
+            record
+            for record in self._permission_audit
+            if record.plugin_id == plugin_id
+        ]
 
     def resolve_command(
         self,
@@ -255,6 +332,21 @@ class PluginRegistry:
                 if normalized_name:
                     names.add(normalized_name)
         return names
+
+    def _validate_can_enable(self, definition: PluginDefinition) -> None:
+        if any(command.enabled for command in definition.commands):
+            if definition.plugin_id not in self._executors:
+                raise PluginStateError(f"该插件 {definition.plugin_id} 未注册执行器")
+        if any(event.enabled for event in definition.events):
+            if definition.plugin_id not in self._event_executors:
+                raise PluginStateError(
+                    f"该插件 {definition.plugin_id} 未注册事件执行器"
+                )
+        if any(middleware.enabled for middleware in definition.middlewares):
+            if definition.plugin_id not in self._middleware_executors:
+                raise PluginStateError(
+                    f"该插件 {definition.plugin_id} 未注册中间件执行器"
+                )
 
 
 def _find_command_definition(

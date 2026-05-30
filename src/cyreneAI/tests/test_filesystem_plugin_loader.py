@@ -6,6 +6,7 @@ from textwrap import dedent
 
 import pytest
 
+from cyreneAI.api.cli import sign_plugin_project
 from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.core.errors.plugin import PluginConfigurationError, PluginInputError
 from cyreneAI.core.schema.bot import BotCommand, BotEvent, BotEventType, BotMessage
@@ -88,6 +89,11 @@ def test_filesystem_plugin_loader_loads_plugin_json_project(tmp_path) -> None:
             assert plugins[0].author == "Cyrene"
             assert plugins[0].license == "MIT"
             assert plugins[0].keywords == ["demo", "hello"]
+            source = runtime.plugin_manager.get_plugin_source("demo.hello")
+            assert source.source_type == "filesystem"
+            assert source.version == "0.1.0"
+            assert source.signature_status == "unsigned"
+            assert source.isolation_mode == "in_process"
             assert [command.name for command in runtime.plugin_manager.list_commands()] == [
                 "hello"
             ]
@@ -110,6 +116,47 @@ def test_filesystem_plugin_loader_loads_plugin_json_project(tmp_path) -> None:
             await runtime.close()
 
     asyncio.run(run())
+
+
+def test_filesystem_plugin_loader_reloads_tracked_source(tmp_path) -> None:
+    async def run() -> None:
+        plugin_path = tmp_path / "demo_hello"
+        _write_hello_plugin(plugin_path)
+
+        runtime = await build_cyrene_ai_runtime(
+            plugin_loaders=[FileSystemPluginLoader(plugin_path)],
+            register_builtin_plugins=False,
+        )
+        try:
+            assert runtime.plugin_host is not None
+            manifest = json.loads((plugin_path / "plugin.json").read_text("utf-8"))
+            manifest["version"] = "0.2.0"
+            (plugin_path / "plugin.json").write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+
+            definition = runtime.plugin_host.reload("demo.hello")
+            source = runtime.plugin_manager.get_plugin_source("demo.hello")
+
+            assert definition.version == "0.2.0"
+            assert source.version == "0.2.0"
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_filesystem_plugin_loader_records_valid_signature(tmp_path) -> None:
+    plugin_path = tmp_path / "demo_hello"
+    _write_hello_plugin(plugin_path)
+    sign_plugin_project(plugin_path, signed_by="tester")
+
+    plugin = FileSystemPluginLoader(plugin_path).load()[0]
+    source = getattr(plugin, "__cyreneai_plugin_source__")
+
+    assert source.signature_status == "valid"
+    assert source.signed_by == "tester"
 
 
 def test_filesystem_plugin_loader_loads_plugins_from_directory(tmp_path) -> None:

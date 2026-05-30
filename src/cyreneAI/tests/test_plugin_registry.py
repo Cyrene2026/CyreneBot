@@ -142,6 +142,37 @@ def test_plugin_registry_ignores_disabled_plugin_commands() -> None:
         registry.resolve_command("help")
 
 
+def test_plugin_registry_can_disable_and_enable_plugin() -> None:
+    registry = PluginRegistry()
+    definition = _definition()
+    executor = _FakePluginExecutor()
+    registry.register(definition, executor)
+
+    disabled = registry.set_enabled("builtin.help", False)
+
+    assert disabled.enabled is False
+    assert registry.list_commands() == []
+    assert registry.list_statuses()[0].status == PluginLifecycleStatus.DISABLED
+
+    enabled = registry.set_enabled("builtin.help", True)
+
+    assert enabled.enabled is True
+    assert registry.resolve_command("help") == (
+        enabled,
+        enabled.commands[0],
+        executor,
+    )
+    assert registry.list_statuses()[0].status == PluginLifecycleStatus.ENABLED
+
+
+def test_plugin_registry_refuses_to_enable_plugin_without_executor() -> None:
+    registry = PluginRegistry()
+    registry.register(_definition(enabled=False))
+
+    with pytest.raises(PluginStateError):
+        registry.set_enabled("builtin.help", True)
+
+
 def test_plugin_registry_requires_executor_for_command_resolution() -> None:
     registry = PluginRegistry()
 

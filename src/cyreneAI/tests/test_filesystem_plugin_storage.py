@@ -14,10 +14,12 @@ def test_filesystem_plugin_storage_persists_namespaced_values(tmp_path) -> None:
         namespace = storage.namespace("demo.hello")
 
         await namespace.set("ban_list", {"users": ["user-1"]})
+        await namespace.set("state", {"ready": True})
 
         next_storage = FileSystemPluginStorage(tmp_path)
         next_namespace = next_storage.namespace("demo.hello")
         assert await next_namespace.get("ban_list") == {"users": ["user-1"]}
+        assert await next_namespace.list_keys() == ["ban_list", "state"]
         assert await next_storage.namespace("demo.other").get("ban_list", {}) == {}
 
     asyncio.run(run())

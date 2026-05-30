@@ -400,18 +400,22 @@ class _PluginTestRuntimeContext:
 
     @property
     def storage(self) -> Any:
+        self.require_permission(PluginPermission.STORAGE)
         return self._dependency("storage")
 
     @property
     def assets(self) -> Any:
+        self.require_permission(PluginPermission.ASSETS)
         return self._dependency("assets")
 
     @property
     def tasks(self) -> Any:
+        self.require_permission(PluginPermission.TASK)
         return self._dependency("tasks", "task", "scheduler")
 
     @property
     def messages(self) -> Any:
+        self.require_permission(PluginPermission.MESSAGE_SEND)
         return self._dependency("messages", "message", "outbox")
 
     @property
@@ -438,6 +442,9 @@ class _PluginTestStorage:
 
     async def delete(self, key: str) -> None:
         self.values.pop(key, None)
+
+    async def list_keys(self) -> list[str]:
+        return sorted(self.values)
 
     async def update(self, key: str, updater: Any, default: Any = None) -> Any:
         value = self.values.get(key, default)
