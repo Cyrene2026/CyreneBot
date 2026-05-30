@@ -78,6 +78,25 @@ def test_cli_init_command_reports_created_project(
     ] == "demo.cli"
 
 
+def test_cli_init_command_defaults_to_current_directory(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_path = tmp_path / "same_level_plugin"
+    project_path.mkdir()
+    monkeypatch.chdir(project_path)
+
+    exit_code = main(["init"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert f"Initialized CyreneAI plugin at {Path('.')}" in captured.out
+    assert json.loads((project_path / "plugin.json").read_text("utf-8"))[
+        "plugin_id"
+    ] == "same_level_plugin"
+
+
 def test_cli_init_command_returns_error_for_existing_project(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

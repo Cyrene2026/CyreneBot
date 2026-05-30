@@ -48,7 +48,7 @@ def init_plugin_project(
     force: bool = False,
 ) -> Path:
     project_path = Path(path)
-    project_name = project_path.name
+    project_name = project_path.resolve().name
     if not project_name:
         raise PluginInitError("plugin path must include a directory name")
 
@@ -90,7 +90,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "init",
         help="create a minimal CyreneAI plugin project",
     )
-    init_parser.add_argument("path", help="target plugin directory")
+    init_parser.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="target plugin directory; defaults to the current directory",
+    )
     init_parser.add_argument(
         "--plugin-id",
         help="plugin id for plugin.json; defaults to a normalized directory name",
