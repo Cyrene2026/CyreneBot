@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -52,6 +52,56 @@ def create_app(
 
     app = FastAPI(title="CyreneBot API", lifespan=lifespan)
     app.state.runtime = runtime
+    app.state.server_settings = settings or build_server_settings_from_env()
+    app.state.telegram_webhook_secret = telegram_webhook_secret
+    app.state.telegram_provider_id = telegram_provider_id
+    app.state.telegram_model = telegram_model
+    app.state.telegram_polling_enabled = telegram_polling_enabled
+    app.state.telegram_polling_interval_seconds = telegram_polling_interval_seconds
+    app.state.telegram_polling_timeout_seconds = telegram_polling_timeout_seconds
+    app.state.telegram_polling_limit = telegram_polling_limit
+
+    app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(providers.router)
+    app.include_router(chat.router)
+    app.include_router(agents.router)
+    app.include_router(images.router)
+    app.include_router(plugins.router)
+    app.include_router(channels.router)
+    app.include_router(telegram.router)
+    return app
+
+
+def create_app_with_runtime_builder(
+    runtime_builder: Callable[[], Awaitable[CyreneAIRuntime]],
+    settings: ServerSettings | None = None,
+    telegram_webhook_secret: str | None = None,
+    telegram_provider_id: str | None = None,
+    telegram_model: str | None = None,
+    telegram_polling_enabled: bool = False,
+    telegram_polling_interval_seconds: float = 1.0,
+    telegram_polling_timeout_seconds: int = 30,
+    telegram_polling_limit: int | None = None,
+) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        runtime = await runtime_builder()
+        app.state.runtime = runtime
+        _log_plugin_startup_state(runtime)
+        polling_runner = _build_telegram_polling_runner(app)
+        app.state.telegram_polling_runner = polling_runner
+        if polling_runner is not None:
+            polling_runner.start()
+        try:
+            yield
+        finally:
+            if polling_runner is not None:
+                await polling_runner.stop()
+            await runtime.close()
+
+    app = FastAPI(title="CyreneBot API", lifespan=lifespan)
+    app.state.runtime = None
     app.state.server_settings = settings or build_server_settings_from_env()
     app.state.telegram_webhook_secret = telegram_webhook_secret
     app.state.telegram_provider_id = telegram_provider_id

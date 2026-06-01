@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -84,6 +85,13 @@ from cyreneAI.server.config import (
     build_tool_sandbox_timeout_seconds_from_env,
     build_vector_database_path_from_env,
 )
+
+
+@pytest.mark.asyncio
+async def test_server_main_imports_inside_running_event_loop() -> None:
+    import cyreneAI.server.main as server_main
+
+    importlib.reload(server_main)
 
 
 class FakeServerProvider:

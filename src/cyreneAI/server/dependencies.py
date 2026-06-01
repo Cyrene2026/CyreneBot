@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from cyreneAI.application.runtime import CyreneAIRuntime
@@ -14,7 +14,13 @@ _admin_basic = HTTPBasic(auto_error=False)
 
 
 def get_runtime(request: Request) -> CyreneAIRuntime:
-    return request.app.state.runtime
+    runtime = request.app.state.runtime
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime is not ready",
+        )
+    return runtime
 
 
 def get_server_settings(request: Request) -> ServerSettings:
