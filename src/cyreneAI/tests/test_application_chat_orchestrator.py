@@ -549,6 +549,92 @@ def test_chat_orchestrator_rejects_disallowed_tool_call() -> None:
     asyncio.run(_run_chat_orchestrator_rejects_disallowed_tool_call())
 
 
+async def _run_chat_orchestrator_does_not_save_unanswered_tool_calls() -> None:
+    provider = FakeChatProvider(
+        [
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            id="call-1",
+                            name="lookup",
+                            arguments="{\"key\":\"value\"}",
+                        )
+                    ],
+                ),
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="lookup",
+                        arguments="{\"key\":\"value\"}",
+                    )
+                ],
+                finish_reason=ChatFinishReason.TOOL_CALLS,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            id="call-2",
+                            name="lookup",
+                            arguments="{\"key\":\"next\"}",
+                        )
+                    ],
+                ),
+                tool_calls=[
+                    ToolCall(
+                        id="call-2",
+                        name="lookup",
+                        arguments="{\"key\":\"next\"}",
+                    )
+                ],
+                finish_reason=ChatFinishReason.TOOL_CALLS,
+            ),
+        ]
+    )
+    provider_manager = await _build_provider_manager(provider)
+    context_store = FakeContextStore()
+    tool_registry = ToolRegistry()
+    tool_registry.register(
+        ToolDefinition(name="lookup", description="Lookup a value."),
+        FakeToolExecutor(),
+    )
+    runtime = CyreneAIRuntime(
+        provider_manager=provider_manager,
+        context_builder=ContextWindowBuilder(),
+        context_manager=ContextManager(context_store),
+        tool_registry=tool_registry,
+        tool_manager=ToolManager(tool_registry),
+    )
+
+    result = await ChatOrchestrator(runtime).chat(
+        ApplicationChatRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            messages=[_message(MessageRole.USER, "Use lookup.")],
+            max_tool_rounds=1,
+        )
+    )
+
+    assert result.response.tool_calls[0].id == "call-2"
+    assert len(provider.requests) == 2
+    assert _context_messages(result.context_snapshot) == [
+        _message(MessageRole.USER, "Use lookup.")
+    ]
+    assert context_store.snapshots == [result.context_snapshot]
+
+
+def test_chat_orchestrator_does_not_save_unanswered_tool_calls() -> None:
+    asyncio.run(_run_chat_orchestrator_does_not_save_unanswered_tool_calls())
+
+
 async def _run_chat_orchestrator_without_optional_managers() -> None:
     provider = FakeChatProvider(
         ChatResponse(

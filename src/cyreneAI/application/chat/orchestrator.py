@@ -322,6 +322,8 @@ def _append_response_message(
 ) -> ContextWindow:
     if message is None:
         return context_window
+    if message.tool_calls:
+        return context_window
 
     segments = list(context_window.segments)
     history_index = next(

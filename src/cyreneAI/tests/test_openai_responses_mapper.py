@@ -181,6 +181,46 @@ def test_map_responses_request_preserves_tool_feedback_turn() -> None:
     ]
 
 
+def test_map_responses_request_drops_unanswered_tool_call_history() -> None:
+    request = ChatRequest(
+        provider_id="provider-1",
+        model="test-model",
+        messages=[
+            Message(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT, text="hello")],
+            ),
+            Message(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        id="call-orphan",
+                        name="lookup",
+                        arguments="{\"key\":\"value\"}",
+                    )
+                ],
+            ),
+            Message(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT, text="continue")],
+            ),
+        ],
+    )
+
+    payload = map_responses_request(request)
+
+    assert payload["input"] == [
+        {
+            "role": "user",
+            "content": "hello",
+        },
+        {
+            "role": "user",
+            "content": "continue",
+        },
+    ]
+
+
 def test_map_responses_response_preserves_tool_only_message() -> None:
     response = Response(
         id="resp-test",

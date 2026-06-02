@@ -23,13 +23,14 @@ from cyreneAI.core.schema.usage import TokenUsage
 
 
 def map_responses_request(request: ChatRequest) -> dict[str, Any]:
+    input_items = [
+        item
+        for message in request.messages
+        for item in map_input_message(message)
+    ]
     payload: dict[str, Any] = {
         "model": request.model,
-        "input": [
-            item
-            for message in request.messages
-            for item in map_input_message(message)
-        ],
+        "input": drop_unanswered_function_calls(input_items),
         "temperature": request.temperature,
         "max_output_tokens": request.max_tokens,
         "top_p": request.top_p,
@@ -82,6 +83,22 @@ def map_input_tool_calls(tool_calls: list[ToolCall] | None) -> list[dict[str, An
             "arguments": tool_call.arguments or "",
         }
         for tool_call in tool_calls
+    ]
+
+
+def drop_unanswered_function_calls(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    output_call_ids = {
+        call_id
+        for item in items
+        if item.get("type") == "function_call_output"
+        for call_id in [item.get("call_id")]
+        if isinstance(call_id, str) and call_id
+    }
+    return [
+        item
+        for item in items
+        if item.get("type") != "function_call"
+        or item.get("call_id") in output_call_ids
     ]
 
 
