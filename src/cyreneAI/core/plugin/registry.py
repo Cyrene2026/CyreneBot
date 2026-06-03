@@ -50,10 +50,13 @@ class PluginRegistry:
 
         command_names = self._enabled_command_names(definition)
         for command_name in command_names:
-            owner_plugin_id = self._command_to_plugin.get(command_name)
-            if owner_plugin_id is not None:
-                raise ConflictError(
-                    f"该插件命令 {command_name} 已由 {owner_plugin_id} 注册"
+            conflict = self._find_command_conflict(command_name)
+            if conflict is not None:
+                conflicting_name, owner_plugin_id = conflict
+                raise _command_conflict_error(
+                    command_name,
+                    conflicting_name,
+                    owner_plugin_id,
                 )
 
         self._definitions[definition.plugin_id] = definition
@@ -127,10 +130,16 @@ class PluginRegistry:
         if enabled:
             command_names = self._enabled_command_names(updated_definition)
             for command_name in command_names:
-                owner_plugin_id = self._command_to_plugin.get(command_name)
-                if owner_plugin_id is not None and owner_plugin_id != plugin_id:
-                    raise ConflictError(
-                        f"该插件命令 {command_name} 已由 {owner_plugin_id} 注册"
+                conflict = self._find_command_conflict(
+                    command_name,
+                    excluding_plugin_id=plugin_id,
+                )
+                if conflict is not None:
+                    conflicting_name, owner_plugin_id = conflict
+                    raise _command_conflict_error(
+                        command_name,
+                        conflicting_name,
+                        owner_plugin_id,
                     )
             for command_name in command_names:
                 self._command_to_plugin[command_name] = plugin_id
@@ -338,6 +347,19 @@ class PluginRegistry:
                     names.add(normalized_name)
         return names
 
+    def _find_command_conflict(
+        self,
+        command_name: str,
+        *,
+        excluding_plugin_id: str | None = None,
+    ) -> tuple[str, str] | None:
+        for existing_name, owner_plugin_id in self._command_to_plugin.items():
+            if owner_plugin_id == excluding_plugin_id:
+                continue
+            if _command_names_conflict(command_name, existing_name):
+                return existing_name, owner_plugin_id
+        return None
+
     def _validate_can_enable(self, definition: PluginDefinition) -> None:
         if any(command.enabled for command in definition.commands):
             if definition.plugin_id not in self._executors:
@@ -369,7 +391,28 @@ def _find_command_definition(
 
 
 def _normalize_command_name(name: str) -> str:
-    return name.strip().lower().removeprefix("/")
+    return " ".join(name.strip().removeprefix("/").split()).lower()
+
+
+def _command_names_conflict(left: str, right: str) -> bool:
+    return _command_namespace(left) == _command_namespace(right)
+
+
+def _command_namespace(name: str) -> str:
+    return _normalize_command_name(name).partition(" ")[0]
+
+
+def _command_conflict_error(
+    command_name: str,
+    conflicting_name: str,
+    owner_plugin_id: str,
+) -> ConflictError:
+    if command_name == conflicting_name:
+        return ConflictError(f"该插件命令 {command_name} 已由 {owner_plugin_id} 注册")
+    return ConflictError(
+        f"该插件命令 {command_name} 与 {owner_plugin_id} 的 "
+        f"{_command_namespace(conflicting_name)} 命名空间冲突"
+    )
 
 
 def _status_from_definition(definition: PluginDefinition) -> PluginStatusReport:

@@ -126,6 +126,41 @@ def test_plugin_registry_rejects_duplicate_commands_and_aliases() -> None:
     assert str(caught.value) == "该插件命令 help 已由 builtin.help 注册"
 
 
+def test_plugin_registry_rejects_cross_plugin_command_namespace_conflicts() -> None:
+    registry = PluginRegistry()
+
+    registry.register(_definition(command_name="suite"), _FakePluginExecutor())
+
+    with pytest.raises(ConflictError) as caught:
+        registry.register(
+            _definition(plugin_id="thirdparty.suite", command_name="suite extra"),
+            _FakePluginExecutor(),
+        )
+    assert str(caught.value) == (
+        "该插件命令 suite extra 与 builtin.help 的 suite 命名空间冲突"
+    )
+
+
+def test_plugin_registry_allows_command_namespace_within_same_plugin() -> None:
+    registry = PluginRegistry()
+    definition = PluginDefinition(
+        plugin_id="thirdparty.suite",
+        name="Suite",
+        description="Suite commands.",
+        commands=[
+            PluginCommandDefinition(name="suite ban", description="Ban user."),
+            PluginCommandDefinition(name="suite kick", description="Kick user."),
+        ],
+    )
+
+    registry.register(definition, _FakePluginExecutor())
+
+    assert [command.name for command in registry.list_commands()] == [
+        "suite ban",
+        "suite kick",
+    ]
+
+
 def test_plugin_registry_ignores_disabled_plugin_commands() -> None:
     registry = PluginRegistry()
 

@@ -287,20 +287,30 @@ def test_plugin_host_loads_third_party_command_from_loader() -> None:
 
 
 @pytest.mark.parametrize(
-    ("command_name", "aliases", "conflict_name"),
+    ("command_name", "aliases", "expected_error"),
     [
-        ("help", [], "help"),
-        ("custom-reset", ["reset"], "reset"),
+        ("help", [], "该插件命令 help 已由 builtin.bot_commands 注册"),
+        ("custom-reset", ["reset"], "该插件命令 reset 已由 builtin.bot_commands 注册"),
+        (
+            "session export",
+            [],
+            "该插件命令 session export 与 builtin.bot_commands 的 session 命名空间冲突",
+        ),
+        (
+            "provider export",
+            [],
+            "该插件命令 provider export 与 builtin.bot_commands 的 provider 命名空间冲突",
+        ),
     ],
 )
 def test_plugin_host_rejects_commands_conflicting_with_builtin_commands(
     command_name: str,
     aliases: list[str],
-    conflict_name: str,
+    expected_error: str,
 ) -> None:
     class ConflictingPlugin:
         manifest = PluginManifest(
-            plugin_id=f"thirdparty.{command_name}",
+            plugin_id=f"thirdparty.{command_name.replace(' ', '_')}",
             name="Conflicting Command",
             description="Plugin command conflicts with a builtin command.",
             entrypoint="plugin.py",
@@ -322,9 +332,7 @@ def test_plugin_host_rejects_commands_conflicting_with_builtin_commands(
             await build_cyrene_ai_runtime(
                 plugin_loaders=[_FakePluginLoader(ConflictingPlugin())],
             )
-        assert str(caught.value) == (
-            f"该插件命令 {conflict_name} 已由 builtin.bot_commands 注册"
-        )
+        assert str(caught.value) == expected_error
 
     asyncio.run(run())
 
