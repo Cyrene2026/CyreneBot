@@ -11,7 +11,14 @@ from cyreneAI.core.context.manager import ContextManager
 from cyreneAI.core.schema.bot import BotCommand, BotEvent, BotEventType, BotMessage
 from cyreneAI.core.schema.context import ContextSnapshot, ContextWindow
 from cyreneAI.core.schema.message import ContentPart, ContentPartType
-from cyreneAI.core.schema.plugin import PluginCommandRequest
+from cyreneAI.core.schema.plugin import (
+    PluginCommandDefinition,
+    PluginCommandRequest,
+    PluginCommandResult,
+    PluginDefinition,
+    PluginLifecycleStatus,
+    PluginStatusReport,
+)
 from cyreneAI.infra.adapters.bot_sessions.memory import InMemoryBotSessionStore
 
 
@@ -44,6 +51,11 @@ class FakeContextStore:
         for snapshot_id in snapshot_ids:
             self.snapshots.pop(snapshot_id, None)
         return len(snapshot_ids)
+
+
+class FakePluginExecutor:
+    async def execute(self, request: PluginCommandRequest) -> PluginCommandResult:
+        return PluginCommandResult()
 
 
 def _event(text: str) -> BotEvent:
@@ -98,6 +110,9 @@ def test_builtin_bot_command_plugin_is_registered_by_default() -> None:
             "provider stop",
             "provider reload",
             "provider check",
+            "plugin ls",
+            "plugin commands",
+            "plugin status",
         ]
 
         await runtime.close()
@@ -135,6 +150,7 @@ def test_builtin_help_command_lists_registered_commands() -> None:
         assert text == "\n".join(
             [
                 "Available commands:",
+                "Built-in:",
                 "/start - Start the bot.",
                 "/help - Show available commands.",
                 "/ping - Check whether the bot is responsive.",
@@ -413,7 +429,199 @@ def test_builtin_help_command_lists_admin_commands_for_admin() -> None:
 
         assert result.actions[0].message is not None
         text = result.actions[0].message.content[0].text
+        assert "Admin:" in text
         assert "/status - Show runtime status. [admin]" in text
+        assert "/plugin commands [plugin_id] - List plugin commands. [admin]" in text
+
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_builtin_help_command_groups_third_party_commands() -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime()
+        assert runtime.plugin_manager is not None
+        registry = runtime.plugin_manager._registry
+        registry.register(
+            PluginDefinition(
+                plugin_id="thirdparty.hello",
+                name="Hello",
+                description="Third-party hello plugin.",
+                commands=[
+                    PluginCommandDefinition(
+                        name="hello",
+                        description="Say hello.",
+                    )
+                ],
+            ),
+            FakePluginExecutor(),
+        )
+
+        result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(raw_text="/help", name="help"),
+                event=_event("/help"),
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "\n".join(
+            [
+                "Available commands:",
+                "Built-in:",
+                "/start - Start the bot.",
+                "/help - Show available commands.",
+                "/ping - Check whether the bot is responsive.",
+                "/echo <text> - Echo text back.",
+                "/session - Show current session.",
+                "/session current - Show current session.",
+                "/session ls - List sessions.",
+                "/session new <name> - Create and select a session.",
+                "/session use <name> - Select a session.",
+                "/session rename <old> <new> - Rename a session.",
+                "/session clear <name> - Clear session context.",
+                "/session delete <name> - Delete a session.",
+                "/reset [session] - Reset current session context.",
+                "Third-party:",
+                "/hello - Say hello. [plugin=thirdparty.hello]",
+            ]
+        )
+
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_builtin_plugin_admin_commands_show_command_audit() -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime()
+        assert runtime.plugin_manager is not None
+        registry = runtime.plugin_manager._registry
+        registry.register(
+            PluginDefinition(
+                plugin_id="thirdparty.hello",
+                name="Hello",
+                description="Third-party hello plugin.",
+                commands=[
+                    PluginCommandDefinition(
+                        name="hello",
+                        description="Say hello.",
+                        aliases=["hi"],
+                    )
+                ],
+            ),
+            FakePluginExecutor(),
+        )
+
+        list_result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(raw_text="/plugin ls", name="plugin ls"),
+                event=_event("/plugin ls"),
+                is_admin=True,
+            )
+        )
+        commands_result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/plugin commands thirdparty.hello",
+                    name="plugin commands",
+                    args=("thirdparty.hello",),
+                    args_text="thirdparty.hello",
+                ),
+                event=_event("/plugin commands thirdparty.hello"),
+                is_admin=True,
+            )
+        )
+        status_result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/plugin status thirdparty.hello",
+                    name="plugin status",
+                    args=("thirdparty.hello",),
+                    args_text="thirdparty.hello",
+                ),
+                event=_event("/plugin status thirdparty.hello"),
+                is_admin=True,
+            )
+        )
+
+        assert list_result.actions[0].message is not None
+        list_text = list_result.actions[0].message.content[0].text
+        assert "- thirdparty.hello status=enabled enabled=true kind=third-party commands=1" in list_text
+        assert commands_result.actions[0].message is not None
+        assert commands_result.actions[0].message.content[0].text == "\n".join(
+            [
+                "Plugin commands:",
+                "- /hello plugin=thirdparty.hello kind=third-party aliases=/hi admin=false enabled=true: Say hello.",
+            ]
+        )
+        assert status_result.actions[0].message is not None
+        assert status_result.actions[0].message.content[0].text == "\n".join(
+            [
+                "Plugin thirdparty.hello:",
+                "status: enabled",
+                "enabled: true",
+                "kind: third-party",
+                "name: Hello",
+                "version: 0.1.0",
+                "commands:",
+                "- /hello aliases=/hi admin=false enabled=true: Say hello.",
+            ]
+        )
+
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_builtin_plugin_status_shows_failed_plugin_command_audit() -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime()
+        assert runtime.plugin_manager is not None
+        registry = runtime.plugin_manager._registry
+        registry.record_status(
+            PluginStatusReport(
+                plugin_id="thirdparty.failed",
+                status=PluginLifecycleStatus.FAILED,
+                reason="register_conflict",
+                error="该插件命令 hello 已由 thirdparty.hello 注册",
+                commands=[
+                    PluginCommandDefinition(
+                        name="hello",
+                        description="Conflicting hello.",
+                        aliases=["hi"],
+                    )
+                ],
+            )
+        )
+
+        result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/plugin status thirdparty.failed",
+                    name="plugin status",
+                    args=("thirdparty.failed",),
+                    args_text="thirdparty.failed",
+                ),
+                event=_event("/plugin status thirdparty.failed"),
+                is_admin=True,
+            )
+        )
+
+        assert result.actions[0].message is not None
+        assert result.actions[0].message.content[0].text == "\n".join(
+            [
+                "Plugin thirdparty.failed:",
+                "status: failed",
+                "enabled: false",
+                "kind: failed",
+                "reason: register_conflict",
+                "error: 该插件命令 hello 已由 thirdparty.hello 注册",
+                "commands:",
+                "- /hello aliases=/hi admin=false enabled=true: Conflicting hello.",
+            ]
+        )
 
         await runtime.close()
 

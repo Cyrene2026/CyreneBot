@@ -426,4 +426,5 @@ def _status_from_definition(definition: PluginDefinition) -> PluginStatusReport:
         enabled=definition.enabled,
         name=definition.name,
         version=definition.version,
+        commands=list(definition.commands),
     )

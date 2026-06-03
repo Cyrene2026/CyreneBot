@@ -292,6 +292,7 @@ class PluginStatusReport(PluginBase):
     version: str | None = None
     reason: str | None = None
     error: str | None = None
+    commands: list[PluginCommandDefinition] = []
 
 
 class PluginSourceInfo(PluginBase):

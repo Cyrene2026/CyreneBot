@@ -14,6 +14,7 @@ from cyreneAI.core.errors.plugin import (
     PluginStateError,
 )
 from cyreneAI.core.context.builder import ContextWindowBuilder
+from cyreneAI.core.plugin.registry import PluginRegistry
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.bot import (
@@ -1231,5 +1232,185 @@ def test_plugin_host_can_record_setup_failure_without_fail_fast() -> None:
             assert statuses[0].error == "boom"
         finally:
             await runtime.close()
+
+    asyncio.run(run())
+
+
+class _ConflictHelloPlugin:
+    manifest = PluginManifest(
+        plugin_id="thirdparty.hello_conflict",
+        name="Hello Conflict",
+        description="Third-party plugin that conflicts with hello.",
+        entrypoint="plugin.py",
+        capabilities=[PluginCapability.BOT_COMMAND],
+        commands=[
+            PluginCommandDefinition(
+                name="hello",
+                description="Conflicting hello.",
+            )
+        ],
+    )
+
+    def setup(self, context) -> None:
+        context.register_command(
+            PluginCommandDefinition(
+                name="hello",
+                description="Conflicting hello.",
+            ),
+            _HelloExecutor(),
+        )
+
+
+def test_plugin_host_conflict_without_fail_fast_keeps_other_plugins() -> None:
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime(
+            plugin_loaders=[
+                _FakePluginLoader(_HelloPlugin(), _ConflictHelloPlugin())
+            ],
+            plugin_fail_fast=False,
+            register_builtin_plugins=False,
+        )
+        try:
+            assert runtime.plugin_manager is not None
+            plugin_ids = [
+                item.plugin_id for item in runtime.plugin_manager.list_plugins()
+            ]
+            assert plugin_ids == ["thirdparty.hello"]
+            assert [item.name for item in runtime.plugin_manager.list_commands()] == [
+                "hello"
+            ]
+
+            statuses = {
+                status.plugin_id: status
+                for status in runtime.plugin_manager.list_statuses()
+            }
+            failed = statuses["thirdparty.hello_conflict"]
+            assert failed.status == PluginLifecycleStatus.FAILED
+            assert failed.reason == "register_conflict"
+            assert "hello" in (failed.error or "")
+            assert failed.commands[0].name == "hello"
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_plugin_host_conflict_without_fail_fast_cleans_up_tool() -> None:
+    class ConflictToolPlugin:
+        manifest = PluginManifest(
+            plugin_id="thirdparty.hello_tool_conflict",
+            name="Hello Tool Conflict",
+            description="Conflicting plugin that also registers a tool.",
+            entrypoint="plugin.py",
+            capabilities=[PluginCapability.BOT_COMMAND, PluginCapability.TOOL],
+            permissions=[PluginPermission.TOOL],
+            commands=[
+                PluginCommandDefinition(
+                    name="hello",
+                    description="Conflicting hello.",
+                )
+            ],
+        )
+
+        def setup(self, context) -> None:
+            context.register_tool(
+                ToolDefinition(name="leaky_lookup", description="Lookup value."),
+                _FakeToolExecutor(),
+            )
+            context.register_command(
+                PluginCommandDefinition(
+                    name="hello",
+                    description="Conflicting hello.",
+                ),
+                _HelloExecutor(),
+            )
+
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime(
+            plugin_loaders=[
+                _FakePluginLoader(_HelloPlugin(), ConflictToolPlugin())
+            ],
+            plugin_fail_fast=False,
+            register_builtin_plugins=False,
+        )
+        try:
+            assert runtime.tool_registry is not None
+            assert runtime.tool_registry.exists("leaky_lookup") is False
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_plugin_host_register_error_without_fail_fast_keeps_other_plugins() -> None:
+    class BrokenRegisterRegistry(PluginRegistry):
+        def register(self, *args, **kwargs) -> None:
+            definition = args[0]
+            if definition.plugin_id == "thirdparty.broken_register":
+                raise RuntimeError("register boom")
+            return super().register(*args, **kwargs)
+
+    class BrokenRegisterPlugin:
+        manifest = PluginManifest(
+            plugin_id="thirdparty.broken_register",
+            name="Broken Register",
+            description="Plugin whose registry registration fails.",
+            entrypoint="plugin.py",
+            capabilities=[PluginCapability.BOT_COMMAND],
+            commands=[
+                PluginCommandDefinition(
+                    name="broken_register",
+                    description="Broken register.",
+                )
+            ],
+        )
+
+        def setup(self, context) -> None:
+            context.register_command(
+                PluginCommandDefinition(
+                    name="broken_register",
+                    description="Broken register.",
+                ),
+                _HelloExecutor(),
+            )
+
+    async def run() -> None:
+        runtime = await build_cyrene_ai_runtime(
+            plugin_registry=BrokenRegisterRegistry(),
+            plugin_loaders=[
+                _FakePluginLoader(BrokenRegisterPlugin(), _HelloPlugin())
+            ],
+            plugin_fail_fast=False,
+            register_builtin_plugins=False,
+        )
+        try:
+            assert runtime.plugin_manager is not None
+            assert [
+                item.plugin_id for item in runtime.plugin_manager.list_plugins()
+            ] == ["thirdparty.hello"]
+            statuses = {
+                status.plugin_id: status
+                for status in runtime.plugin_manager.list_statuses()
+            }
+            failed = statuses["thirdparty.broken_register"]
+            assert failed.status == PluginLifecycleStatus.FAILED
+            assert failed.reason == "register_failed"
+            assert failed.error == "register boom"
+            assert failed.commands[0].name == "broken_register"
+        finally:
+            await runtime.close()
+
+    asyncio.run(run())
+
+
+def test_plugin_host_conflict_with_fail_fast_raises() -> None:
+    async def run() -> None:
+        with pytest.raises(ConflictError):
+            await build_cyrene_ai_runtime(
+                plugin_loaders=[
+                    _FakePluginLoader(_HelloPlugin(), _ConflictHelloPlugin())
+                ],
+                register_builtin_plugins=False,
+            )
 
     asyncio.run(run())

@@ -20,10 +20,12 @@ from cyreneAI.core.schema.plugin import (
     PluginEventRequest,
     PluginEventResult,
     PluginEventType,
+    PluginLifecycleStatus,
     PluginMiddlewareDefinition,
     PluginMiddlewareRequest,
     PluginMiddlewareType,
     PluginTaskDefinition,
+    PluginStatusReport,
 )
 
 
@@ -146,6 +148,30 @@ def test_plugin_manager_lists_plugins_and_commands() -> None:
     assert manager.list_plugin_tasks(definition.plugin_id) == definition.tasks
     assert manager.list_plugin_middlewares(definition.plugin_id) == definition.middlewares
     assert manager.get_plugin_status(definition.plugin_id).plugin_id == definition.plugin_id
+
+
+def test_plugin_manager_gets_failed_status_without_definition() -> None:
+    registry = PluginRegistry()
+    registry.record_status(
+        PluginStatusReport(
+            plugin_id="thirdparty.failed",
+            status=PluginLifecycleStatus.FAILED,
+            reason="register_conflict",
+            commands=[
+                PluginCommandDefinition(
+                    name="hello",
+                    description="Say hello.",
+                )
+            ],
+        )
+    )
+    manager = PluginManager(registry)
+
+    status = manager.get_plugin_status("thirdparty.failed")
+
+    assert status.plugin_id == "thirdparty.failed"
+    assert status.reason == "register_conflict"
+    assert status.commands[0].name == "hello"
 
 
 async def _run_execute_command() -> None:

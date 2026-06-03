@@ -686,6 +686,7 @@ def test_bot_orchestrator_treats_slash_message_as_command() -> None:
             "\n".join(
                 [
                     "Available commands:",
+                    "Built-in:",
                     "/start - Start the bot.",
                     "/help - Show available commands.",
                     "/ping - Check whether the bot is responsive.",

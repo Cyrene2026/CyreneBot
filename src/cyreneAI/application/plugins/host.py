@@ -10,6 +10,7 @@ from cyreneAI.application.agent.request_builder import build_agent_run_request
 from cyreneAI.application.chat.orchestrator import ChatOrchestrator
 from cyreneAI.application.generation.image_orchestrator import ImageGenerationOrchestrator
 from cyreneAI.application.runtime import CyreneAIRuntime
+from cyreneAI.core.errors.base import ConflictError
 from cyreneAI.core.errors.plugin import (
     PluginAuthorizationError,
     PluginConfigurationError,
@@ -115,6 +116,7 @@ class PluginHost:
                 status=PluginLifecycleStatus.FAILED,
                 reason="loader_failed",
                 error=str(exc),
+                commands=[],
             )
             self._registry.record_status(status)
             logger.exception(
@@ -130,6 +132,7 @@ class PluginHost:
                 status=PluginLifecycleStatus.FAILED,
                 reason="loader_failed",
                 error=str(exc),
+                commands=[],
             )
             self._registry.record_status(status)
             logger.exception(
@@ -144,7 +147,7 @@ class PluginHost:
         for module in modules:
             try:
                 definition = self.register(module)
-            except PluginError:
+            except (PluginError, ConflictError):
                 if self._fail_fast:
                     raise
                 definition = None
@@ -237,16 +240,63 @@ class PluginHost:
 
         definition = setup_context.build_definition()
         command_executor, event_executor, middleware_executor = setup_context.build_executors()
-        self._registry.register(
-            definition,
-            command_executor,
-            event_executor=event_executor,
-            middleware_executor=middleware_executor,
-        )
-        self._remember_module_metadata(module, definition)
+        # 先记录 setup 已注册的运行时资源名，确保后续注册失败时也能回收。
         self._plugin_tool_names[definition.plugin_id] = setup_context.tool_names
         self._plugin_skill_names[definition.plugin_id] = setup_context.skill_names
+        try:
+            self._registry.register(
+                definition,
+                command_executor,
+                event_executor=event_executor,
+                middleware_executor=middleware_executor,
+            )
+        except ConflictError as exc:
+            self._handle_register_failure(
+                manifest,
+                definition.plugin_id,
+                reason="register_conflict",
+                error=str(exc),
+            )
+            raise
+        except Exception as exc:
+            self._handle_register_failure(
+                manifest,
+                definition.plugin_id,
+                reason="register_failed",
+                error=str(exc),
+            )
+            raise PluginConfigurationError(
+                f"插件 {definition.plugin_id} 注册失败",
+                cause=exc,
+            ) from exc
+        self._remember_module_metadata(module, definition)
         return definition
+
+    def _handle_register_failure(
+        self,
+        manifest: PluginManifest,
+        plugin_id: str,
+        *,
+        reason: str,
+        error: str,
+    ) -> None:
+        """
+        注册失败时回收 setup 已注册的运行时资源并记录 FAILED 状态。
+        """
+        self._unregister_runtime_resources(plugin_id)
+        self._registry.record_status(
+            _status_from_manifest(
+                manifest,
+                status=PluginLifecycleStatus.FAILED,
+                reason=reason,
+                error=error,
+            )
+        )
+        logger.exception(
+            "Plugin register failed: plugin_id=%s reason=%s",
+            plugin_id,
+            reason,
+        )
 
     def reload(self, plugin_id: str) -> PluginDefinition:
         """
@@ -294,6 +344,7 @@ class PluginHost:
                     name=definition.name,
                     version=definition.version,
                     reason="reloaded",
+                    commands=list(definition.commands),
                 )
             )
             return definition
@@ -1126,6 +1177,7 @@ def _status_from_manifest(
         version=manifest.version,
         reason=reason,
         error=error,
+        commands=list(manifest.commands),
     )
 
 

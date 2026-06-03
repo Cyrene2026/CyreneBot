@@ -119,6 +119,12 @@ class BuiltinBotCommandExecutor:
             text = await self._reload_provider(command.args)
         elif command.name == "provider check":
             text = await self._check_provider(command.args)
+        elif command.name == "plugin ls":
+            text = self._render_plugin_list()
+        elif command.name == "plugin commands":
+            text = self._render_plugin_commands(command.args)
+        elif command.name == "plugin status":
+            text = self._render_plugin_status(command.args)
         else:
             text = _render_unknown_command(command.name)
 
@@ -138,14 +144,36 @@ class BuiltinBotCommandExecutor:
 
     def _render_help(self, *, is_admin: bool = False) -> str:
         lines = ["Available commands:"]
-        for command in self._registry.list_commands():
-            if not command.enabled:
+        builtin_lines: list[str] = []
+        third_party_lines: list[str] = []
+        admin_lines: list[str] = []
+        for definition in self._registry.list_definitions():
+            if not definition.enabled:
                 continue
-            if command.admin_required and not is_admin:
-                continue
-            usage = _render_command_usage(command)
-            admin_suffix = " [admin]" if command.admin_required else ""
-            lines.append(f"{usage} - {command.description}{admin_suffix}")
+            for command in definition.commands:
+                if not command.enabled:
+                    continue
+                if command.admin_required:
+                    if is_admin:
+                        admin_lines.append(
+                            _render_command_help_line(
+                                command,
+                                definition,
+                                include_admin=True,
+                            )
+                        )
+                    continue
+                if definition.builtin:
+                    builtin_lines.append(
+                        _render_command_help_line(command, definition)
+                    )
+                else:
+                    third_party_lines.append(
+                        _render_command_help_line(command, definition)
+                    )
+        _append_help_section(lines, "Built-in:", builtin_lines)
+        _append_help_section(lines, "Third-party:", third_party_lines)
+        _append_help_section(lines, "Admin:", admin_lines)
         return "\n".join(lines)
 
     def _render_status(self) -> str:
@@ -556,6 +584,144 @@ class BuiltinBotCommandExecutor:
             return f"Provider check failed: {exc}"
         return f"Provider {provider_id} reachable. models={len(models)}"
 
+    def _render_plugin_list(self) -> str:
+        manager = self._runtime.plugin_manager
+        if manager is None:
+            return "Plugins are disabled."
+        definitions = {
+            definition.plugin_id: definition
+            for definition in manager.list_plugins()
+        }
+        statuses = {
+            status.plugin_id: status
+            for status in manager.list_statuses()
+        }
+        plugin_ids = sorted(set(definitions) | set(statuses))
+        if not plugin_ids:
+            return "No plugins registered."
+
+        lines = ["Plugins:"]
+        for plugin_id in plugin_ids:
+            definition = definitions.get(plugin_id)
+            status = statuses.get(plugin_id)
+            kind = _plugin_kind(definition)
+            status_value = status.status if status is not None else "unknown"
+            enabled = status.enabled if status is not None else False
+            commands = (
+                definition.commands
+                if definition is not None
+                else (status.commands if status is not None else [])
+            )
+            suffix = ""
+            if status is not None and status.reason:
+                suffix = f" reason={status.reason}"
+            lines.append(
+                f"- {plugin_id} status={status_value} "
+                f"enabled={str(enabled).lower()} kind={kind} "
+                f"commands={len(commands)}{suffix}"
+            )
+        return "\n".join(lines)
+
+    def _render_plugin_commands(self, args: tuple[str, ...]) -> str:
+        manager = self._runtime.plugin_manager
+        if manager is None:
+            return "Plugins are disabled."
+        plugin_filter = args[0] if args else None
+        definitions = {
+            definition.plugin_id: definition
+            for definition in manager.list_plugins()
+        }
+        statuses = {
+            status.plugin_id: status
+            for status in manager.list_statuses()
+        }
+        plugin_ids = sorted(set(definitions) | set(statuses))
+        if plugin_filter is not None:
+            plugin_ids = [plugin_id for plugin_id in plugin_ids if plugin_id == plugin_filter]
+            if not plugin_ids:
+                return f"Unknown plugin: {plugin_filter}"
+
+        lines = ["Plugin commands:"]
+        for plugin_id in plugin_ids:
+            definition = definitions.get(plugin_id)
+            status = statuses.get(plugin_id)
+            commands = (
+                definition.commands
+                if definition is not None
+                else (status.commands if status is not None else [])
+            )
+            for command in commands:
+                aliases = _render_aliases(command.aliases)
+                lines.append(
+                    f"- {_render_command_usage(command)} "
+                    f"plugin={plugin_id} kind={_plugin_kind(definition)} "
+                    f"aliases={aliases} admin={str(command.admin_required).lower()} "
+                    f"enabled={str(command.enabled).lower()}: {command.description}"
+                )
+        if len(lines) == 1:
+            return "No plugin commands registered."
+        return "\n".join(lines)
+
+    def _render_plugin_status(self, args: tuple[str, ...]) -> str:
+        manager = self._runtime.plugin_manager
+        if manager is None:
+            return "Plugins are disabled."
+        if not args:
+            return "Usage: /plugin status <plugin_id>"
+        plugin_id = args[0]
+        try:
+            status = manager.get_plugin_status(plugin_id)
+        except CyreneAIError as exc:
+            return f"Plugin status failed: {exc}"
+
+        try:
+            definition = manager.get_plugin(plugin_id)
+        except CyreneAIError:
+            definition = None
+        commands = definition.commands if definition is not None else status.commands
+
+        lines = [
+            f"Plugin {plugin_id}:",
+            f"status: {status.status}",
+            f"enabled: {str(status.enabled).lower()}",
+            f"kind: {_plugin_kind(definition)}",
+        ]
+        if status.name:
+            lines.append(f"name: {status.name}")
+        if status.version:
+            lines.append(f"version: {status.version}")
+        if status.reason:
+            lines.append(f"reason: {status.reason}")
+        if status.error:
+            lines.append(f"error: {status.error}")
+        lines.append("commands:")
+        if commands:
+            for command in commands:
+                lines.append(
+                    f"- {_render_command_usage(command)} "
+                    f"aliases={_render_aliases(command.aliases)} "
+                    f"admin={str(command.admin_required).lower()} "
+                    f"enabled={str(command.enabled).lower()}: "
+                    f"{command.description}"
+                )
+        else:
+            lines.append("- none")
+
+        try:
+            source = manager.get_plugin_source(plugin_id)
+        except CyreneAIError:
+            source = None
+        if source is not None:
+            lines.append("source:")
+            lines.append(f"type: {source.source_type}")
+            if source.path:
+                lines.append(f"path: {source.path}")
+            if source.manifest_path:
+                lines.append(f"manifest_path: {source.manifest_path}")
+            if source.entrypoint:
+                lines.append(f"entrypoint: {source.entrypoint}")
+        return "\n".join(lines)
+
     async def _saved_provider_config_or_none(
         self,
         provider_id: str,
@@ -579,6 +745,7 @@ def _builtin_bot_commands_definition() -> PluginDefinition:
             PluginCapability.BOT_COMMAND,
             PluginCapability.STATUS,
             PluginCapability.TOOL,
+            PluginCapability.ADMIN,
         ],
         commands=[
             PluginCommandDefinition(
@@ -724,6 +891,24 @@ def _builtin_bot_commands_definition() -> PluginDefinition:
                 usage="/provider check <provider_id>",
                 admin_required=True,
             ),
+            PluginCommandDefinition(
+                name="plugin ls",
+                description="List plugins.",
+                usage="/plugin ls",
+                admin_required=True,
+            ),
+            PluginCommandDefinition(
+                name="plugin commands",
+                description="List plugin commands.",
+                usage="/plugin commands [plugin_id]",
+                admin_required=True,
+            ),
+            PluginCommandDefinition(
+                name="plugin status",
+                description="Show plugin status.",
+                usage="/plugin status <plugin_id>",
+                admin_required=True,
+            ),
         ],
     )
 
@@ -784,6 +969,44 @@ def _metadata_string(value: object) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def _append_help_section(
+    lines: list[str],
+    title: str,
+    section_lines: list[str],
+) -> None:
+    if not section_lines:
+        return
+    lines.append(title)
+    lines.extend(section_lines)
+
+
+def _render_command_help_line(
+    command: PluginCommandDefinition,
+    definition: PluginDefinition,
+    *,
+    include_admin: bool = False,
+) -> str:
+    suffixes: list[str] = []
+    if not definition.builtin:
+        suffixes.append(f"plugin={definition.plugin_id}")
+    if include_admin:
+        suffixes.append("admin")
+    suffix = f" [{' '.join(suffixes)}]" if suffixes else ""
+    return f"{_render_command_usage(command)} - {command.description}{suffix}"
+
+
+def _plugin_kind(definition: PluginDefinition | None) -> str:
+    if definition is None:
+        return "failed"
+    return "builtin" if definition.builtin else "third-party"
+
+
+def _render_aliases(aliases: list[str]) -> str:
+    if not aliases:
+        return "-"
+    return ",".join(f"/{alias.strip().removeprefix('/')}" for alias in aliases)
 
 
 def _render_command_usage(command: PluginCommandDefinition) -> str:

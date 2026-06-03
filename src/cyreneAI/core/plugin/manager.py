@@ -108,7 +108,6 @@ class PluginManager:
         """
         获取单个插件生命周期状态。
         """
-        self.get_plugin(plugin_id)
         for status in self.list_statuses():
             if status.plugin_id == plugin_id:
                 return status

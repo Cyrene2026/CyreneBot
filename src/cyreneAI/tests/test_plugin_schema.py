@@ -287,3 +287,4 @@ def test_plugin_status_report_defaults() -> None:
     assert status.version is None
     assert status.reason == "setup_failed"
     assert status.error == "boom"
+    assert status.commands == []

@@ -86,6 +86,9 @@ async def _run_build_runtime(tmp_path) -> None:
         "provider stop",
         "provider reload",
         "provider check",
+        "plugin ls",
+        "plugin commands",
+        "plugin status",
     ]
 
     bundle = runtime.skill_manager.build_instruction_bundle(
