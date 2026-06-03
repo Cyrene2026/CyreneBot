@@ -282,8 +282,9 @@ def test_builtin_session_commands_manage_conversations_and_reset_context() -> No
         assert current.actions[0].message is not None
         assert current.actions[0].message.content[0].text == "\n".join(
             [
-                "Current session:",
-                "name: default",
+                "Session default:",
+                "status: active",
+                "id: default",
                 "context_session_id: memory:user-1:conversation:default",
             ]
         )
@@ -295,8 +296,14 @@ def test_builtin_session_commands_manage_conversations_and_reset_context() -> No
         assert listed.actions[0].message.content[0].text == "\n".join(
             [
                 "Sessions:",
-                "- default id=default context=memory:user-1:conversation:default",
-                "* work id=work context=memory:user-1:conversation:work",
+                (
+                    "- default id=default status=inactive "
+                    "context_session_id=memory:user-1:conversation:default"
+                ),
+                (
+                    "- work id=work status=active "
+                    "context_session_id=memory:user-1:conversation:work"
+                ),
             ]
         )
         assert selected_default.actions[0].message is not None
@@ -381,7 +388,10 @@ def test_builtin_session_clear_keeps_conversation() -> None:
         )
         assert await store.list_snapshots(work_session_id) == []
         assert listed.actions[0].message is not None
-        assert "* work id=work context=memory:user-1:conversation:work" in (
+        assert (
+            "- work id=work status=active "
+            "context_session_id=memory:user-1:conversation:work"
+        ) in (
             listed.actions[0].message.content[0].text
         )
 
@@ -545,6 +555,18 @@ def test_builtin_plugin_admin_commands_show_command_audit() -> None:
                 is_admin=True,
             )
         )
+        unknown_result = await runtime.plugin_manager.execute_command(
+            PluginCommandRequest(
+                command=BotCommand(
+                    raw_text="/plugin status missing.plugin",
+                    name="plugin status",
+                    args=("missing.plugin",),
+                    args_text="missing.plugin",
+                ),
+                event=_event("/plugin status missing.plugin"),
+                is_admin=True,
+            )
+        )
 
         assert list_result.actions[0].message is not None
         list_text = list_result.actions[0].message.content[0].text
@@ -568,6 +590,10 @@ def test_builtin_plugin_admin_commands_show_command_audit() -> None:
                 "commands:",
                 "- /hello aliases=/hi admin=false enabled=true: Say hello.",
             ]
+        )
+        assert unknown_result.actions[0].message is not None
+        assert unknown_result.actions[0].message.content[0].text == (
+            "Unknown plugin: missing.plugin"
         )
 
         await runtime.close()

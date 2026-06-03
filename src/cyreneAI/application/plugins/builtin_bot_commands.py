@@ -263,15 +263,12 @@ class BuiltinBotCommandExecutor:
         conversations = await manager.list_conversations(event)
         lines = ["Sessions:"]
         for conversation in conversations:
-            marker = (
-                "*"
-                if conversation.conversation_id == active.conversation_id
-                else "-"
-            )
+            status = _session_status(conversation, active)
             lines.append(
-                f"{marker} {conversation.name} "
+                f"- {conversation.name} "
                 f"id={conversation.conversation_id} "
-                f"context={conversation.context_session_id}"
+                f"status={status} "
+                f"context_session_id={conversation.context_session_id}"
             )
         return "\n".join(lines)
 
@@ -448,11 +445,12 @@ class BuiltinBotCommandExecutor:
         if not configs:
             return "No providers running."
 
-        lines = ["Running providers:"]
+        lines = ["Providers:"]
         for provider_id in sorted(configs):
             config = configs[provider_id]
             lines.append(
                 f"- {provider_id} type={config.provider_type.value} "
+                f"status=running "
                 f"enabled={str(config.enabled).lower()}"
             )
         return "\n".join(lines)
@@ -477,7 +475,7 @@ class BuiltinBotCommandExecutor:
             )
             suffix = f" capabilities={capabilities}" if capabilities else ""
             lines.append(
-                f"- {provider.provider_type.value}: {provider.name}{suffix}"
+                f"- {provider.provider_type.value} name={provider.name}{suffix}"
             )
         return "\n".join(lines)
 
@@ -497,6 +495,7 @@ class BuiltinBotCommandExecutor:
 
         lines = [
             f"Provider {provider_id}:",
+            f"status: {'running' if running else 'stopped'}",
             f"type: {config.provider_type.value}",
             f"configured: {str(saved_config is not None).lower()}",
             f"running: {str(running).lower()}",
@@ -669,6 +668,9 @@ class BuiltinBotCommandExecutor:
         if not args:
             return "Usage: /plugin status <plugin_id>"
         plugin_id = args[0]
+        known_plugin_ids = {status.plugin_id for status in manager.list_statuses()}
+        if plugin_id not in known_plugin_ids:
+            return f"Unknown plugin: {plugin_id}"
         try:
             status = manager.get_plugin_status(plugin_id)
         except CyreneAIError as exc:
@@ -958,11 +960,21 @@ def _request_event(request: PluginCommandRequest) -> BotEvent:
 def _render_conversation_current(conversation: BotConversationRef) -> str:
     return "\n".join(
         [
-            "Current session:",
-            f"name: {conversation.name}",
+            f"Session {conversation.name}:",
+            "status: active",
+            f"id: {conversation.conversation_id}",
             f"context_session_id: {conversation.context_session_id}",
         ]
     )
+
+
+def _session_status(
+    conversation: BotConversationRef,
+    active: BotConversationRef,
+) -> str:
+    if conversation.conversation_id == active.conversation_id:
+        return "active"
+    return "inactive"
 
 
 def _metadata_string(value: object) -> str | None:

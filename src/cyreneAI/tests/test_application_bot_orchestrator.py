@@ -988,16 +988,35 @@ def test_bot_orchestrator_runs_provider_admin_commands() -> None:
         assert list_result.actions[0].message.content == _content(
             "\n".join(
                 [
-                    "Running providers:",
-                    "- provider-1 type=openai_compatible enabled=true",
+                    "Providers:",
+                    "- provider-1 type=openai_compatible status=running enabled=true",
                 ]
             )
         )
         assert status_result.actions[0].message is not None
-        assert "api_key: set" in status_result.actions[0].message.content[0].text
-        assert "secret-key" not in status_result.actions[0].message.content[0].text
+        assert status_result.actions[0].message.content == _content(
+            "\n".join(
+                [
+                    "Provider provider-1:",
+                    "status: running",
+                    "type: openai_compatible",
+                    "configured: true",
+                    "running: true",
+                    "enabled: true",
+                    "api_key: set",
+                    "timeout_seconds: 1",
+                ]
+            )
+        )
         assert catalog_result.actions[0].message is not None
-        assert "openai_compatible" in catalog_result.actions[0].message.content[0].text
+        assert catalog_result.actions[0].message.content == _content(
+            "\n".join(
+                [
+                    "Provider catalog:",
+                    "- openai_compatible name=fake",
+                ]
+            )
+        )
         assert stop_result.actions[0].message is not None
         assert stop_result.actions[0].message.content == _content(
             "Provider provider-1 stopped."
