@@ -53,6 +53,40 @@ def test_map_telegram_command_update_to_bot_event() -> None:
     assert event.event_type == BotEventType.COMMAND
 
 
+def test_map_telegram_photo_update_to_image_part() -> None:
+    event = map_telegram_update_to_bot_event(
+        {
+            "update_id": 1003,
+            "message": {
+                "message_id": 12,
+                "from": {"id": 42},
+                "chat": {"id": 99, "type": "private"},
+                "caption": "look",
+                "photo": [
+                    {
+                        "file_id": "small-file",
+                        "file_unique_id": "small-unique",
+                        "width": 90,
+                        "height": 90,
+                    },
+                    {
+                        "file_id": "large-file",
+                        "file_unique_id": "large-unique",
+                        "width": 800,
+                        "height": 600,
+                    },
+                ],
+            },
+        }
+    )
+
+    assert event.message is not None
+    assert event.message.content[0].text == "look"
+    assert event.message.content[1].type == ContentPartType.IMAGE
+    assert event.message.content[1].mime_type == "image/jpeg"
+    assert event.message.content[1].metadata["telegram_file_id"] == "large-file"
+
+
 def test_map_telegram_unknown_update_to_bot_event() -> None:
     event = map_telegram_update_to_bot_event({"update_id": 1002})
 

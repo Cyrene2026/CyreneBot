@@ -32,7 +32,11 @@ def test_map_chat_request_builds_openai_compatible_payload() -> None:
                 role=MessageRole.USER,
                 content=[
                     ContentPart(type=ContentPartType.TEXT, text="hello"),
-                    ContentPart(type=ContentPartType.IMAGE, text="ignored"),
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        url="https://example.test/cat.png",
+                        detail="low",
+                    ),
                 ],
             ),
             Message(
@@ -74,7 +78,19 @@ def test_map_chat_request_builds_openai_compatible_payload() -> None:
     assert payload["messages"] == [
         {
             "role": "user",
-            "content": "hello",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "hello",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "https://example.test/cat.png",
+                        "detail": "low",
+                    },
+                },
+            ],
         },
         {
             "role": "assistant",

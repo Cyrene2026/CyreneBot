@@ -44,6 +44,11 @@ class ContentPart(CyreneAISchema):
 
     type: ContentPartType
     text: str | None = None
+    url: str | None = None
+    data: str | None = None
+    mime_type: str | None = None
+    detail: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Message(CyreneAISchema):

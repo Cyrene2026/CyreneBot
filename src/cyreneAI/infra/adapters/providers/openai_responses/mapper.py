@@ -49,7 +49,7 @@ def map_input_message(message: Message) -> list[dict[str, Any]]:
         ]
 
     items: list[dict[str, Any]] = []
-    content = map_content_parts(message.content)
+    content = map_input_content_parts(message.content)
     if content or message.role != MessageRole.ASSISTANT or not message.tool_calls:
         items.append(
             _drop_none(
@@ -109,6 +109,65 @@ def map_content_parts(parts: list[ContentPart] | None) -> str:
         if part.type == ContentPartType.TEXT and part.text is not None
     ]
     return "\n".join(texts)
+
+
+def map_input_content_parts(
+    parts: list[ContentPart] | None,
+) -> str | list[dict[str, Any]]:
+    if not parts:
+        return ""
+
+    if not has_mappable_image(parts):
+        return map_content_parts(parts)
+
+    content: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type == ContentPartType.TEXT and part.text is not None:
+            content.append(
+                {
+                    "type": "input_text",
+                    "text": part.text,
+                }
+            )
+            continue
+
+        if part.type == ContentPartType.IMAGE:
+            image = map_input_image(part)
+            if image is not None:
+                content.append(image)
+
+    return content
+
+
+def map_input_image(part: ContentPart) -> dict[str, Any] | None:
+    image_url = map_image_url_value(part)
+    if image_url is None:
+        return None
+
+    payload: dict[str, Any] = {
+        "type": "input_image",
+        "image_url": image_url,
+        "detail": part.detail,
+    }
+    return _drop_none(payload)
+
+
+def map_image_url_value(part: ContentPart) -> str | None:
+    if part.url:
+        return part.url
+    if not part.data:
+        return None
+    if part.data.startswith("data:"):
+        return part.data
+    mime_type = part.mime_type or "image/png"
+    return f"data:{mime_type};base64,{part.data}"
+
+
+def has_mappable_image(parts: list[ContentPart]) -> bool:
+    return any(
+        part.type == ContentPartType.IMAGE and bool(part.url or part.data)
+        for part in parts
+    )
 
 
 def map_tool(tool: ToolDefinition) -> dict[str, Any]:

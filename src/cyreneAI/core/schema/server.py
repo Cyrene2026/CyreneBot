@@ -42,23 +42,26 @@ def _empty_context_segments() -> list[ContextSegment]:
 class HTTPMessage(CyreneAISchema):
     role: MessageRole
     content: str | None = None
+    content_parts: list[ContentPart] | None = None
     name: str | None = None
     tool_call_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_core_message(self) -> Message:
+        if self.content_parts is not None:
+            content = self.content_parts
+        elif self.content is not None:
+            content = [
+                ContentPart(
+                    type=ContentPartType.TEXT,
+                    text=self.content,
+                )
+            ]
+        else:
+            content = None
         return Message(
             role=self.role,
-            content=(
-                [
-                    ContentPart(
-                        type=ContentPartType.TEXT,
-                        text=self.content,
-                    )
-                ]
-                if self.content is not None
-                else None
-            ),
+            content=content,
             name=self.name,
             tool_call_id=self.tool_call_id,
             metadata=self.metadata.copy(),

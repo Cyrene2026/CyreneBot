@@ -70,12 +70,7 @@ def map_qq_update_to_bot_event(
         message=BotMessage(
             message_id=message_id,
             sender_id=user_id,
-            content=[
-                ContentPart(
-                    type=ContentPartType.TEXT,
-                    text=text or "",
-                )
-            ],
+            content=_message_content_parts(data, text),
             metadata=metadata,
         ),
         metadata=metadata,
@@ -229,6 +224,86 @@ def _message_text(data: dict[str, Any]) -> str | None:
     if isinstance(text, str):
         return text
     return None
+
+
+def _message_content_parts(
+    data: dict[str, Any],
+    text: str | None,
+) -> list[ContentPart]:
+    parts: list[ContentPart] = [
+        ContentPart(
+            type=ContentPartType.TEXT,
+            text=text or "",
+        )
+    ]
+    parts.extend(_attachment_image_parts(data.get("attachments")))
+    return parts
+
+
+def _attachment_image_parts(attachments: Any) -> list[ContentPart]:
+    if not isinstance(attachments, list):
+        return []
+
+    parts: list[ContentPart] = []
+    for attachment in attachments:
+        if not _is_image_attachment(attachment):
+            continue
+        url = _attachment_str(attachment, "url")
+        parts.append(
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                url=url,
+                mime_type=_attachment_str(attachment, "content_type")
+                or _attachment_str(attachment, "mime_type"),
+                metadata=_drop_empty_metadata(
+                    {
+                        "qq_attachment_id": _attachment_str(attachment, "id"),
+                        "qq_attachment_filename": _attachment_str(
+                            attachment,
+                            "filename",
+                        )
+                        or _attachment_str(attachment, "file_name"),
+                        "qq_attachment_size": _attachment_str(attachment, "size"),
+                        "qq_attachment_width": _attachment_str(attachment, "width"),
+                        "qq_attachment_height": _attachment_str(attachment, "height"),
+                    }
+                ),
+            )
+        )
+    return parts
+
+
+def _is_image_attachment(attachment: Any) -> bool:
+    content_type = _attachment_str(attachment, "content_type") or _attachment_str(
+        attachment,
+        "mime_type",
+    )
+    if content_type is not None and content_type.startswith("image/"):
+        return True
+
+    filename = _attachment_str(attachment, "filename") or _attachment_str(
+        attachment,
+        "file_name",
+    )
+    if filename is not None and filename.lower().endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".webp")
+    ):
+        return True
+
+    url = _attachment_str(attachment, "url")
+    return url is not None and url.lower().split("?", maxsplit=1)[0].endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".webp")
+    )
+
+
+def _attachment_str(attachment: Any, key: str) -> str | None:
+    if isinstance(attachment, dict):
+        return _metadata_str(cast(dict[str, Any], attachment).get(key))
+    return _metadata_str(getattr(attachment, key, None))
+
+
+def _drop_empty_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _message_id(data: dict[str, Any]) -> str | None:

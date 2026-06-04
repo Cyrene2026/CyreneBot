@@ -19,6 +19,7 @@ GOOGLE_GENAI_PROVIDER_INFO = ProviderInfo(
     features=[
         ProviderFeature.TOOL_CALLING,
         ProviderFeature.STREAMING,
+        ProviderFeature.VISION,
         ProviderFeature.JSON_MODE,
         ProviderFeature.MODEL_LISTING,
     ],

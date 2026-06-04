@@ -25,7 +25,12 @@ def test_map_responses_request_builds_payload() -> None:
                 role=MessageRole.USER,
                 content=[
                     ContentPart(type=ContentPartType.TEXT, text="hello"),
-                    ContentPart(type=ContentPartType.IMAGE, text="ignored"),
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        data="aW1hZ2UtYnl0ZXM=",
+                        mime_type="image/png",
+                        detail="high",
+                    ),
                 ],
             )
         ],
@@ -52,7 +57,17 @@ def test_map_responses_request_builds_payload() -> None:
     assert payload["input"] == [
         {
             "role": "user",
-            "content": "hello",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": "hello",
+                },
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+                    "detail": "high",
+                },
+            ],
         }
     ]
     assert payload["temperature"] == 0

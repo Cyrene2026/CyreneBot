@@ -67,8 +67,7 @@ def map_parts(message: Message) -> list[dict[str, Any]]:
             *map_function_call_parts(message.tool_calls),
         ]
 
-    text = map_content_parts(message.content)
-    return [{"text": text}] if text else []
+    return map_content_part_blocks(message.content)
 
 
 def map_content_parts(parts: list[ContentPart] | None) -> str:
@@ -85,6 +84,54 @@ def map_content_parts(parts: list[ContentPart] | None) -> str:
 def map_text_parts(parts: list[ContentPart] | None) -> list[dict[str, Any]]:
     text = map_content_parts(parts)
     return [{"text": text}] if text else []
+
+
+def map_content_part_blocks(parts: list[ContentPart] | None) -> list[dict[str, Any]]:
+    if not parts:
+        return []
+
+    if not has_mappable_image(parts):
+        return map_text_parts(parts)
+
+    blocks: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type == ContentPartType.TEXT and part.text is not None:
+            blocks.append({"text": part.text})
+            continue
+
+        if part.type == ContentPartType.IMAGE:
+            image_part = map_image_part(part)
+            if image_part is not None:
+                blocks.append(image_part)
+
+    return blocks
+
+
+def map_image_part(part: ContentPart) -> dict[str, Any] | None:
+    if part.data:
+        return {
+            "inline_data": {
+                "mime_type": part.mime_type or "image/png",
+                "data": part.data,
+            }
+        }
+    if part.url:
+        return {
+            "file_data": _drop_none(
+                {
+                    "mime_type": part.mime_type,
+                    "file_uri": part.url,
+                }
+            )
+        }
+    return None
+
+
+def has_mappable_image(parts: list[ContentPart]) -> bool:
+    return any(
+        part.type == ContentPartType.IMAGE and bool(part.url or part.data)
+        for part in parts
+    )
 
 
 def map_function_call_parts(tool_calls: list[ToolCall]) -> list[dict[str, Any]]:

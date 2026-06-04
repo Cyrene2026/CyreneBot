@@ -27,7 +27,14 @@ def test_map_anthropic_request_builds_payload() -> None:
             ),
             Message(
                 role=MessageRole.USER,
-                content=[ContentPart(type=ContentPartType.TEXT, text="hello")],
+                content=[
+                    ContentPart(type=ContentPartType.TEXT, text="hello"),
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        data="aW1hZ2UtYnl0ZXM=",
+                        mime_type="image/png",
+                    ),
+                ],
             ),
         ],
         temperature=0,
@@ -51,7 +58,25 @@ def test_map_anthropic_request_builds_payload() -> None:
 
     assert payload["model"] == "claude-test"
     assert payload["system"] == "be brief"
-    assert payload["messages"] == [{"role": "user", "content": "hello"}]
+    assert payload["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "hello",
+                },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "aW1hZ2UtYnl0ZXM=",
+                    },
+                },
+            ],
+        }
+    ]
     assert payload["temperature"] == 0
     assert payload["max_tokens"] == 16
     assert payload["tools"] == [

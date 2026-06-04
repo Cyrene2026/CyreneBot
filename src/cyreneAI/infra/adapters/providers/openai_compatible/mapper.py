@@ -102,19 +102,74 @@ def map_message(
     return cast(ChatCompletionMessageParam, _drop_none(payload))
 
 
-def map_content_parts(parts: list[ContentPart] | None) -> str | None:
+def map_content_parts(
+    parts: list[ContentPart] | None,
+) -> str | list[dict[str, Any]] | None:
     if not parts:
         return None
 
-    texts = [
-        part.text
-        for part in parts
-        if part.type == ContentPartType.TEXT and part.text is not None
-    ]
-    if not texts:
+    if not has_mappable_image(parts):
+        texts = [
+            part.text
+            for part in parts
+            if part.type == ContentPartType.TEXT and part.text is not None
+        ]
+        if not texts:
+            return None
+        return "\n".join(texts)
+
+    content: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type == ContentPartType.TEXT and part.text is not None:
+            content.append(
+                {
+                    "type": "text",
+                    "text": part.text,
+                }
+            )
+            continue
+
+        if part.type == ContentPartType.IMAGE:
+            image_url = map_image_url(part)
+            if image_url is not None:
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": image_url,
+                    }
+                )
+
+    return content or None
+
+
+def map_image_url(part: ContentPart) -> dict[str, Any] | None:
+    url = map_image_url_value(part)
+    if url is None:
         return None
 
-    return "\n".join(texts)
+    payload: dict[str, Any] = {
+        "url": url,
+        "detail": part.detail,
+    }
+    return _drop_none(payload)
+
+
+def map_image_url_value(part: ContentPart) -> str | None:
+    if part.url:
+        return part.url
+    if not part.data:
+        return None
+    if part.data.startswith("data:"):
+        return part.data
+    mime_type = part.mime_type or "image/png"
+    return f"data:{mime_type};base64,{part.data}"
+
+
+def has_mappable_image(parts: list[ContentPart]) -> bool:
+    return any(
+        part.type == ContentPartType.IMAGE and bool(part.url or part.data)
+        for part in parts
+    )
 
 
 def map_message_tool_calls(
@@ -335,8 +390,8 @@ def extract_think_content(content: str | None) -> tuple[str | None, str | None]:
     return visible_content or None, reasoning_content or None
 
 
-def _is_empty_content(content: str | None) -> bool:
-    return content is None or content == ""
+def _is_empty_content(content: object) -> bool:
+    return content is None or content == "" or content == []
 
 
 def map_embedding_request(request: EmbeddingRequest) -> dict[str, Any]:

@@ -68,12 +68,7 @@ def map_telegram_update_to_bot_event(
         message=BotMessage(
             message_id=message_id,
             sender_id=user_id,
-            content=[
-                ContentPart(
-                    type=ContentPartType.TEXT,
-                    text=text or "",
-                )
-            ],
+            content=_message_content_parts(message_data, text),
             metadata={
                 "telegram_chat_id": chat_id,
                 "telegram_chat_type": str(chat_data.get("type") or ""),
@@ -118,6 +113,65 @@ def _message_text(message: dict[str, Any]) -> str | None:
     if isinstance(caption, str):
         return caption
     return None
+
+
+def _message_content_parts(
+    message: dict[str, Any],
+    text: str | None,
+) -> list[ContentPart]:
+    parts: list[ContentPart] = [
+        ContentPart(
+            type=ContentPartType.TEXT,
+            text=text or "",
+        )
+    ]
+    parts.extend(_image_content_parts(message))
+    return parts
+
+
+def _image_content_parts(message: dict[str, Any]) -> list[ContentPart]:
+    photo = message.get("photo")
+    if isinstance(photo, list) and photo:
+        photo_items = [
+            cast(dict[str, Any], item) for item in photo if isinstance(item, dict)
+        ]
+        if photo_items:
+            item = photo_items[-1]
+            return [
+                ContentPart(
+                    type=ContentPartType.IMAGE,
+                    mime_type="image/jpeg",
+                    metadata={
+                        "telegram_file_id": str(item.get("file_id") or ""),
+                        "telegram_file_unique_id": str(
+                            item.get("file_unique_id") or ""
+                        ),
+                        "telegram_width": str(item.get("width") or ""),
+                        "telegram_height": str(item.get("height") or ""),
+                    },
+                )
+            ]
+
+    document = message.get("document")
+    if isinstance(document, dict):
+        document_data = cast(dict[str, Any], document)
+        mime_type = document_data.get("mime_type")
+        if isinstance(mime_type, str) and mime_type.startswith("image/"):
+            return [
+                ContentPart(
+                    type=ContentPartType.IMAGE,
+                    mime_type=mime_type,
+                    metadata={
+                        "telegram_file_id": str(document_data.get("file_id") or ""),
+                        "telegram_file_unique_id": str(
+                            document_data.get("file_unique_id") or ""
+                        ),
+                        "telegram_file_name": str(document_data.get("file_name") or ""),
+                    },
+                )
+            ]
+
+    return []
 
 
 def _resolve_chat_id(action: BotAction) -> str:

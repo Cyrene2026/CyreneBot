@@ -82,6 +82,37 @@ def test_map_qq_group_update_prefers_group_route_over_channel_id() -> None:
     assert event.metadata["qq_group_openid"] == "group-1"
 
 
+def test_map_qq_attachment_update_to_image_part() -> None:
+    event = map_qq_update_to_bot_event(
+        {
+            "t": "GROUP_AT_MESSAGE_CREATE",
+            "d": {
+                "id": "message-4",
+                "group_openid": "group-1",
+                "user_openid": "user-2",
+                "content": "look",
+                "attachments": [
+                    {
+                        "id": "attachment-1",
+                        "filename": "cat.png",
+                        "content_type": "image/png",
+                        "url": "https://example.test/cat.png",
+                        "width": 640,
+                        "height": 480,
+                    }
+                ],
+            },
+        }
+    )
+
+    assert event.message is not None
+    assert event.message.content[0].text == "look"
+    assert event.message.content[1].type == ContentPartType.IMAGE
+    assert event.message.content[1].url == "https://example.test/cat.png"
+    assert event.message.content[1].mime_type == "image/png"
+    assert event.message.content[1].metadata["qq_attachment_id"] == "attachment-1"
+
+
 def test_map_qq_direct_message_update_to_dm_event() -> None:
     event = map_qq_update_to_bot_event(
         {

@@ -57,7 +57,7 @@ def map_message(message: Message) -> dict[str, Any]:
         }
     return {
         "role": role,
-        "content": map_content_parts(message.content),
+        "content": map_message_content(message.content),
     }
 
 
@@ -83,6 +83,64 @@ def map_content_parts(parts: list[ContentPart] | None) -> str:
         if part.type == ContentPartType.TEXT and part.text is not None
     ]
     return "\n".join(texts)
+
+
+def map_message_content(parts: list[ContentPart] | None) -> str | list[dict[str, Any]]:
+    if not parts:
+        return ""
+
+    if not has_mappable_image(parts):
+        return map_content_parts(parts)
+
+    blocks: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type == ContentPartType.TEXT and part.text is not None:
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": part.text,
+                }
+            )
+            continue
+
+        if part.type == ContentPartType.IMAGE:
+            image_block = map_image_content_block(part)
+            if image_block is not None:
+                blocks.append(image_block)
+
+    return blocks
+
+
+def map_image_content_block(part: ContentPart) -> dict[str, Any] | None:
+    source = map_image_source(part)
+    if source is None:
+        return None
+    return {
+        "type": "image",
+        "source": source,
+    }
+
+
+def map_image_source(part: ContentPart) -> dict[str, Any] | None:
+    if part.url:
+        return {
+            "type": "url",
+            "url": part.url,
+        }
+    if not part.data:
+        return None
+    return {
+        "type": "base64",
+        "media_type": part.mime_type or "image/png",
+        "data": part.data,
+    }
+
+
+def has_mappable_image(parts: list[ContentPart]) -> bool:
+    return any(
+        part.type == ContentPartType.IMAGE and bool(part.url or part.data)
+        for part in parts
+    )
 
 
 def map_text_content_blocks(parts: list[ContentPart] | None) -> list[dict[str, Any]]:

@@ -41,13 +41,21 @@ def test_register_default_providers_registers_catalog_and_builders() -> None:
         in registry.get(ProviderType.OPENAI_COMPATIBLE).features
     )
     assert (
+        ProviderFeature.VISION in registry.get(ProviderType.OPENAI_COMPATIBLE).features
+    )
+    assert (
         ProviderFeature.MODEL_LISTING
         in registry.get(ProviderType.OPENAI_RESPONSES).features
     )
     assert (
+        ProviderFeature.VISION in registry.get(ProviderType.OPENAI_RESPONSES).features
+    )
+    assert (
         ProviderFeature.MODEL_LISTING in registry.get(ProviderType.ANTHROPIC).features
     )
+    assert ProviderFeature.VISION in registry.get(ProviderType.ANTHROPIC).features
     assert ProviderFeature.MODEL_LISTING in registry.get(ProviderType.GOOGLE).features
+    assert ProviderFeature.VISION in registry.get(ProviderType.GOOGLE).features
 
 
 def test_register_default_providers_rejects_duplicate_registration() -> None:

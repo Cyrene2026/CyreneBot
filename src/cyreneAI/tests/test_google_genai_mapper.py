@@ -26,7 +26,14 @@ def test_map_google_genai_request_builds_payload() -> None:
         messages=[
             Message(
                 role=MessageRole.USER,
-                content=[ContentPart(type=ContentPartType.TEXT, text="hello")],
+                content=[
+                    ContentPart(type=ContentPartType.TEXT, text="hello"),
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        data="aW1hZ2UtYnl0ZXM=",
+                        mime_type="image/png",
+                    ),
+                ],
             )
         ],
         temperature=0,
@@ -52,7 +59,15 @@ def test_map_google_genai_request_builds_payload() -> None:
     assert payload["contents"] == [
         {
             "role": "user",
-            "parts": [{"text": "hello"}],
+            "parts": [
+                {"text": "hello"},
+                {
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": "aW1hZ2UtYnl0ZXM=",
+                    }
+                },
+            ],
         }
     ]
     assert payload["config"]["temperature"] == 0
