@@ -138,6 +138,7 @@ def test_map_send_message_action_to_qq_group_payload_from_session() -> None:
         "content": "pong",
         "_route": "group",
         "_route_id": "group-1",
+        "msg_type": 0,
     }
 
 
@@ -169,7 +170,73 @@ def test_map_send_message_action_prefers_group_metadata_for_group_event() -> Non
         "content": "pong",
         "_route": "group",
         "_route_id": "group-1",
+        "msg_type": 0,
         "msg_id": "message-1",
+        "msg_seq": 1,
+    }
+
+
+def test_map_send_message_action_prefers_user_metadata_for_c2c_event() -> None:
+    payload = map_bot_action_to_qq_send_message_payload(
+        BotAction(
+            action_type=BotActionType.SEND_MESSAGE,
+            channel_id="qq",
+            session_id="qq:user:user-1",
+            thread_id="user-1",
+            message=BotMessage(
+                content=[
+                    ContentPart(
+                        type=ContentPartType.TEXT,
+                        text="pong",
+                    )
+                ]
+            ),
+            metadata={
+                "qq_event_type": "C2C_MESSAGE_CREATE",
+                "qq_user_openid": "user-1",
+                "qq_message_id": "message-1",
+            },
+        )
+    )
+
+    assert payload == {
+        "content": "pong",
+        "_route": "user",
+        "_route_id": "user-1",
+        "msg_type": 0,
+        "msg_id": "message-1",
+        "msg_seq": 1,
+    }
+
+
+def test_map_send_message_action_uses_qq_msg_seq_metadata() -> None:
+    payload = map_bot_action_to_qq_send_message_payload(
+        BotAction(
+            action_type=BotActionType.SEND_MESSAGE,
+            channel_id="qq",
+            session_id="qq:group:group-1",
+            message=BotMessage(
+                content=[
+                    ContentPart(
+                        type=ContentPartType.TEXT,
+                        text="pong",
+                    )
+                ]
+            ),
+            metadata={
+                "qq_message_id": "message-1",
+                "qq_msg_seq": "7",
+            },
+        )
+    )
+
+    assert payload == {
+        "content": "pong",
+        "_route": "group",
+        "_route_id": "group-1",
+        "msg_type": 0,
+        "msg_id": "message-1",
+        "msg_seq": 7,
     }
 
 

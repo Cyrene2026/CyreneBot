@@ -100,9 +100,13 @@ def map_bot_action_to_qq_send_message_payload(action: BotAction) -> dict[str, An
         "_route": route_kind,
         "_route_id": route_value,
     }
+    if route_kind in {"group", "user"}:
+        payload["msg_type"] = 0
     message_id = _metadata_str(action.metadata.get("qq_message_id"))
     if message_id is not None:
         payload["msg_id"] = message_id
+        if route_kind in {"group", "user"}:
+            payload["msg_seq"] = _action_msg_seq(action)
     return payload
 
 
@@ -350,6 +354,19 @@ def _action_text(action: BotAction) -> str:
         if part.type == ContentPartType.TEXT and part.text
     ]
     return "\n".join(chunks)
+
+
+def _action_msg_seq(action: BotAction) -> int:
+    value = action.metadata.get("qq_msg_seq")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return 1
+        return parsed
+    return 1
 
 
 def _metadata_str(value: object) -> str | None:
