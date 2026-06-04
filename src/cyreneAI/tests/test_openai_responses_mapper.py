@@ -155,6 +155,36 @@ def test_map_responses_response_builds_core_response() -> None:
     assert mapped.tool_calls[0].arguments == '{"key":"value"}'
 
 
+def test_map_responses_request_ignores_unmappable_image_part() -> None:
+    request = ChatRequest(
+        provider_id="provider-1",
+        model="test-model",
+        messages=[
+            Message(
+                role=MessageRole.USER,
+                content=[
+                    ContentPart(type=ContentPartType.TEXT, text="hello"),
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        metadata={
+                            "qq_attachment_url": "https://qq.example/private.png",
+                        },
+                    ),
+                ],
+            )
+        ],
+    )
+
+    payload = map_responses_request(request)
+
+    assert payload["input"] == [
+        {
+            "role": "user",
+            "content": "hello",
+        }
+    ]
+
+
 def test_map_responses_request_preserves_tool_feedback_turn() -> None:
     request = ChatRequest(
         provider_id="provider-1",

@@ -108,9 +108,13 @@ def test_map_qq_attachment_update_to_image_part() -> None:
     assert event.message is not None
     assert event.message.content[0].text == "look"
     assert event.message.content[1].type == ContentPartType.IMAGE
-    assert event.message.content[1].url == "https://example.test/cat.png"
+    assert event.message.content[1].url is None
     assert event.message.content[1].mime_type == "image/png"
     assert event.message.content[1].metadata["qq_attachment_id"] == "attachment-1"
+    assert (
+        event.message.content[1].metadata["qq_attachment_url"]
+        == "https://example.test/cat.png"
+    )
 
 
 def test_map_qq_direct_message_update_to_dm_event() -> None:

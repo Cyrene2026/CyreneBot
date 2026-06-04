@@ -248,11 +248,9 @@ def _attachment_image_parts(attachments: Any) -> list[ContentPart]:
     for attachment in attachments:
         if not _is_image_attachment(attachment):
             continue
-        url = _attachment_str(attachment, "url")
         parts.append(
             ContentPart(
                 type=ContentPartType.IMAGE,
-                url=url,
                 mime_type=_attachment_str(attachment, "content_type")
                 or _attachment_str(attachment, "mime_type"),
                 metadata=_drop_empty_metadata(
@@ -266,6 +264,7 @@ def _attachment_image_parts(attachments: Any) -> list[ContentPart]:
                         "qq_attachment_size": _attachment_str(attachment, "size"),
                         "qq_attachment_width": _attachment_str(attachment, "width"),
                         "qq_attachment_height": _attachment_str(attachment, "height"),
+                        "qq_attachment_url": _attachment_str(attachment, "url"),
                     }
                 ),
             )
