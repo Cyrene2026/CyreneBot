@@ -62,6 +62,26 @@ def test_map_qq_group_command_update_to_bot_event() -> None:
     assert event.metadata["qq_user_openid"] == "user-2"
 
 
+def test_map_qq_group_update_prefers_group_route_over_channel_id() -> None:
+    event = map_qq_update_to_bot_event(
+        {
+            "t": "GROUP_AT_MESSAGE_CREATE",
+            "d": {
+                "id": "message-2",
+                "channel_id": "not-a-real-channel",
+                "group_openid": "group-1",
+                "user_openid": "user-2",
+                "content": "hello",
+            },
+        }
+    )
+
+    assert event.session_id == "qq:group:group-1"
+    assert event.thread_id == "group-1"
+    assert event.metadata["qq_channel_id"] == "not-a-real-channel"
+    assert event.metadata["qq_group_openid"] == "group-1"
+
+
 def test_map_qq_unknown_update_to_bot_event() -> None:
     event = map_qq_update_to_bot_event({"id": "event-3", "t": "READY", "d": {}})
 
@@ -118,6 +138,38 @@ def test_map_send_message_action_to_qq_group_payload_from_session() -> None:
         "content": "pong",
         "_route": "group",
         "_route_id": "group-1",
+    }
+
+
+def test_map_send_message_action_prefers_group_metadata_for_group_event() -> None:
+    payload = map_bot_action_to_qq_send_message_payload(
+        BotAction(
+            action_type=BotActionType.SEND_MESSAGE,
+            channel_id="qq",
+            session_id="qq:group:group-1",
+            thread_id="group-1",
+            message=BotMessage(
+                content=[
+                    ContentPart(
+                        type=ContentPartType.TEXT,
+                        text="pong",
+                    )
+                ]
+            ),
+            metadata={
+                "qq_event_type": "GROUP_AT_MESSAGE_CREATE",
+                "qq_channel_id": "not-a-real-channel",
+                "qq_group_openid": "group-1",
+                "qq_message_id": "message-1",
+            },
+        )
+    )
+
+    assert payload == {
+        "content": "pong",
+        "_route": "group",
+        "_route_id": "group-1",
+        "msg_id": "message-1",
     }
 
 

@@ -46,7 +46,7 @@ def map_qq_update_to_bot_event(
             ),
         )
 
-    route = _resolve_route(data)
+    route = _resolve_route(data, event_name=event_name)
     text = _message_text(data)
     event_type = (
         BotEventType.COMMAND
@@ -152,20 +152,25 @@ def _is_message_event(event_name: str, data: dict[str, Any]) -> bool:
     )
 
 
-def _resolve_route(data: dict[str, Any]) -> _Route:
+def _resolve_route(data: dict[str, Any], *, event_name: str = "") -> _Route:
+    if event_name == "GROUP_AT_MESSAGE_CREATE":
+        group_route = _group_route(data)
+        if group_route is not None:
+            return group_route
+    if event_name in {"C2C_MESSAGE_CREATE", "DIRECT_MESSAGE_CREATE"}:
+        user_route = _user_route(data)
+        if user_route is not None:
+            return user_route
+
     channel_id = _metadata_str(data.get("channel_id"))
     if channel_id is not None:
         return _Route("channel", channel_id)
-    group_id = _metadata_str(data.get("group_openid")) or _metadata_str(
-        data.get("group_id")
-    )
-    if group_id is not None:
-        return _Route("group", group_id)
-    user_id = _metadata_str(data.get("user_openid")) or _metadata_str(
-        data.get("user_id")
-    )
-    if user_id is not None:
-        return _Route("user", user_id)
+    group_route = _group_route(data)
+    if group_route is not None:
+        return group_route
+    user_route = _user_route(data)
+    if user_route is not None:
+        return user_route
     guild_id = _metadata_str(data.get("guild_id"))
     if guild_id is not None:
         return _Route("guild", guild_id)
@@ -180,6 +185,26 @@ def _resolve_route(data: dict[str, Any]) -> _Route:
         "QQ message update must include channel_id, group_id, group_openid, "
         "guild_id, user_id, or user_openid"
     )
+
+
+def _group_route(data: dict[str, Any]) -> _Route | None:
+    group_id = _metadata_str(data.get("group_openid")) or _metadata_str(
+        data.get("group_id")
+    )
+    if group_id is None:
+        return None
+    return _Route("group", group_id)
+
+
+def _user_route(data: dict[str, Any]) -> _Route | None:
+    user_id = (
+        _metadata_str(data.get("user_openid"))
+        or _metadata_str(data.get("user_id"))
+        or _metadata_str(data.get("openid"))
+    )
+    if user_id is None:
+        return None
+    return _Route("user", user_id)
 
 
 def _message_text(data: dict[str, Any]) -> str | None:
@@ -245,6 +270,28 @@ def _event_metadata(
 
 
 def _resolve_action_route(action: BotAction) -> tuple[str, str]:
+    event_type = _metadata_str(action.metadata.get("qq_event_type"))
+    if event_type == "GROUP_AT_MESSAGE_CREATE":
+        route = _resolve_action_route_from_keys(
+            action,
+            (
+                ("qq_group_openid", "group"),
+                ("qq_group_id", "group"),
+            ),
+        )
+        if route is not None:
+            return route
+    if event_type in {"C2C_MESSAGE_CREATE", "DIRECT_MESSAGE_CREATE"}:
+        route = _resolve_action_route_from_keys(
+            action,
+            (
+                ("qq_user_openid", "user"),
+                ("qq_user_id", "user"),
+            ),
+        )
+        if route is not None:
+            return route
+
     for key, route in (
         ("qq_channel_id", "channel"),
         ("qq_group_openid", "group"),
@@ -268,6 +315,17 @@ def _resolve_action_route(action: BotAction) -> tuple[str, str]:
     if parsed is not None:
         return parsed
     raise BotActionError("QQ action must include a channel, group, or user route")
+
+
+def _resolve_action_route_from_keys(
+    action: BotAction,
+    keys: tuple[tuple[str, str], ...],
+) -> tuple[str, str] | None:
+    for key, route in keys:
+        value = _metadata_str(action.metadata.get(key))
+        if value is not None:
+            return route, value
+    return None
 
 
 def _parse_session_route(value: str) -> tuple[str, str] | None:

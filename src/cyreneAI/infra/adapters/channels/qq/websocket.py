@@ -97,14 +97,7 @@ def _message_to_update(event_type: str, message: Any) -> dict[str, Any]:
         "id": _str_attr(message, "id"),
         "content": _str_attr(message, "content"),
     }
-    for attr in (
-        "channel_id",
-        "guild_id",
-        "group_id",
-        "group_openid",
-        "user_id",
-        "user_openid",
-    ):
+    for attr in _message_route_attrs(event_type):
         value = _str_attr(message, attr)
         if value:
             data[attr] = value
@@ -144,6 +137,29 @@ def _str_attr(source: Any, name: str) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _message_route_attrs(event_type: str) -> tuple[str, ...]:
+    if event_type == "GROUP_AT_MESSAGE_CREATE":
+        return (
+            "group_id",
+            "group_openid",
+            "user_id",
+            "user_openid",
+        )
+    if event_type in {"C2C_MESSAGE_CREATE", "DIRECT_MESSAGE_CREATE"}:
+        return (
+            "user_id",
+            "user_openid",
+        )
+    return (
+        "channel_id",
+        "guild_id",
+        "group_id",
+        "group_openid",
+        "user_id",
+        "user_openid",
+    )
 
 
 def _load_botpy() -> tuple[Any, type]:
