@@ -10,6 +10,10 @@ from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.server.channel_polling import ChannelPollingRunner
 from cyreneAI.server.channel_websocket import ChannelWebSocketRunner
 from cyreneAI.server.config import ServerSettings, build_server_settings_from_env
+from cyreneAI.server.logging_middleware import (
+    DEFAULT_REQUEST_ID_HEADER,
+    install_request_logging_middleware,
+)
 from cyreneAI.server.routes import (
     agents,
     auth,
@@ -40,6 +44,8 @@ def create_app(
     telegram_polling_interval_seconds: float = 1.0,
     telegram_polling_timeout_seconds: int = 30,
     telegram_polling_limit: int | None = None,
+    request_logging_enabled: bool = True,
+    request_id_header: str = DEFAULT_REQUEST_ID_HEADER,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -64,6 +70,11 @@ def create_app(
             await runtime.close()
 
     app = FastAPI(title="CyreneBot API", lifespan=lifespan)
+    install_request_logging_middleware(
+        app,
+        enabled=request_logging_enabled,
+        request_id_header=request_id_header,
+    )
     app.state.runtime = runtime
     app.state.runtime_ready = False
     app.state.server_settings = settings or build_server_settings_from_env()
@@ -107,6 +118,8 @@ def create_app_with_runtime_builder(
     telegram_polling_interval_seconds: float = 1.0,
     telegram_polling_timeout_seconds: int = 30,
     telegram_polling_limit: int | None = None,
+    request_logging_enabled: bool = True,
+    request_id_header: str = DEFAULT_REQUEST_ID_HEADER,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -133,6 +146,11 @@ def create_app_with_runtime_builder(
             await runtime.close()
 
     app = FastAPI(title="CyreneBot API", lifespan=lifespan)
+    install_request_logging_middleware(
+        app,
+        enabled=request_logging_enabled,
+        request_id_header=request_id_header,
+    )
     app.state.runtime = None
     app.state.runtime_ready = False
     app.state.server_settings = settings or build_server_settings_from_env()

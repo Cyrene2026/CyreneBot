@@ -47,6 +47,14 @@ from cyreneAI.server.config import (
     build_web_search_timeout_seconds_from_env,
     build_web_search_url_template_from_env,
 )
+from cyreneAI.server.logging_config import (
+    build_request_id_header_from_env,
+    build_request_logging_enabled_from_env,
+    configure_logging_from_env,
+)
+
+
+configure_logging_from_env()
 
 
 async def _build_runtime():
@@ -107,6 +115,8 @@ def _build_app():
         telegram_polling_interval_seconds=build_telegram_polling_interval_seconds_from_env(),
         telegram_polling_timeout_seconds=build_telegram_polling_timeout_seconds_from_env(),
         telegram_polling_limit=build_telegram_polling_limit_from_env(),
+        request_logging_enabled=build_request_logging_enabled_from_env(),
+        request_id_header=build_request_id_header_from_env(),
     )
 
 

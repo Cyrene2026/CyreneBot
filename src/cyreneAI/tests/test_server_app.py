@@ -286,6 +286,8 @@ def _client(
     qq_model: str | None = None,
     qq_websocket_enabled: bool = False,
     telegram_polling_enabled: bool = False,
+    request_logging_enabled: bool = True,
+    request_id_header: str = "X-Request-ID",
 ) -> TestClient:
     return TestClient(
         create_app(
@@ -299,6 +301,8 @@ def _client(
             qq_model=qq_model,
             qq_websocket_enabled=qq_websocket_enabled,
             telegram_polling_enabled=telegram_polling_enabled,
+            request_logging_enabled=request_logging_enabled,
+            request_id_header=request_id_header,
         )
     )
 
@@ -593,6 +597,51 @@ def test_server_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_server_request_logging_propagates_request_id(caplog) -> None:
+    client = _client()
+
+    with caplog.at_level(logging.INFO, logger="cyreneAI.server.requests"):
+        response = client.get("/health", headers={"X-Request-ID": "req-123"})
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "req-123"
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "cyreneAI.server.requests"
+    ]
+    assert len(records) == 1
+    assert records[0].message == "HTTP request completed"
+    assert records[0].status_code == 200
+    assert isinstance(records[0].duration_ms, int)
+
+
+def test_server_request_logging_can_use_custom_request_id_header() -> None:
+    response = _client(request_id_header="X-Trace-ID").get(
+        "/health",
+        headers={"X-Trace-ID": "trace-123"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Trace-ID"] == "trace-123"
+    assert "X-Request-ID" not in response.headers
+
+
+def test_server_request_logging_can_be_disabled(caplog) -> None:
+    client = _client(request_logging_enabled=False)
+
+    with caplog.at_level(logging.INFO, logger="cyreneAI.server.requests"):
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert "X-Request-ID" not in response.headers
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "cyreneAI.server.requests"
+    ]
 
 
 def test_server_readiness_requires_lifespan_startup() -> None:
