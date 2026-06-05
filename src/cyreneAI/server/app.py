@@ -27,7 +27,7 @@ from cyreneAI.server.routes import (
     telegram,
 )
 
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("cyreneAI.server.startup")
 
 
 def create_app(
@@ -206,6 +206,10 @@ def _log_plugin_startup_state(runtime: CyreneAIRuntime) -> None:
     logger.info(
         "CyreneBot commands loaded: count=%s commands=%s",
         len(command_items),
+        "(see DEBUG for command list)" if command_items else "(none)",
+    )
+    logger.debug(
+        "CyreneBot command list: commands=%s",
         ", ".join(command_items) or "(none)",
     )
     status_items = [

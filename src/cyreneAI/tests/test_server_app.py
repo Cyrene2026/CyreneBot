@@ -1694,14 +1694,24 @@ def test_server_logs_loaded_plugins_and_commands(caplog) -> None:
         plugin_manager=PluginManager(registry),
     )
 
-    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+    with caplog.at_level(logging.DEBUG, logger="cyreneAI.server.startup"):
         _log_plugin_startup_state(runtime)
 
     assert "CyreneBot plugins loaded: count=1 plugins=demo.hello@0.1.0" in caplog.text
     assert (
-        "CyreneBot commands loaded: count=1 commands=/hello <name> aliases=hi"
+        "CyreneBot commands loaded: count=1 commands=(see DEBUG for command list)"
         in caplog.text
     )
+    assert (
+        "CyreneBot command list: commands=/hello <name> aliases=hi"
+        in caplog.text
+    )
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "uvicorn.error"
+        and record.message.startswith("CyreneBot")
+    ]
 
 
 def test_server_logs_when_plugin_manager_is_missing(caplog) -> None:
@@ -1710,7 +1720,7 @@ def test_server_logs_when_plugin_manager_is_missing(caplog) -> None:
         context_builder=ContextWindowBuilder(),
     )
 
-    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+    with caplog.at_level(logging.INFO, logger="cyreneAI.server.startup"):
         _log_plugin_startup_state(runtime)
 
     assert "CyreneBot plugins disabled: no plugin manager" in caplog.text

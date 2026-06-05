@@ -266,6 +266,16 @@ def build_logging_config(
                 "handlers": [],
                 "propagate": access_enabled,
             },
+            "cyreneAI.server.startup": {
+                "level": normalized_level,
+                "handlers": [],
+                "propagate": True,
+            },
+            "cyreneAI.server.requests": {
+                "level": normalized_level,
+                "handlers": [],
+                "propagate": True,
+            },
         },
     }
 

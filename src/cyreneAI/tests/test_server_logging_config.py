@@ -47,6 +47,8 @@ def test_server_builds_default_logging_config_from_env(monkeypatch) -> None:
     assert config["loggers"]["cyreneAI"]["propagate"] is True
     assert config["loggers"]["uvicorn.error"]["level"] == "INFO"
     assert config["loggers"]["uvicorn.access"]["propagate"] is True
+    assert config["loggers"]["cyreneAI.server.startup"]["level"] == "INFO"
+    assert config["loggers"]["cyreneAI.server.requests"]["level"] == "INFO"
     assert build_request_logging_enabled_from_env() is True
     assert build_request_id_header_from_env() == "X-Request-ID"
 
