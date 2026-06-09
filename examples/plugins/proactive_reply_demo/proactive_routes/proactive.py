@@ -2,7 +2,6 @@ import time
 
 from cyreneAI.api import CyreneRouter, Depends
 
-
 router = CyreneRouter()
 commands = CyreneRouter(prefix="/proactive")
 DEFAULT_FOLLOW_UP_DELAY_SECONDS = 30.0

@@ -577,8 +577,10 @@ def _chat_result_to_send_message_action(
     chat_result: ApplicationChatResult,
 ) -> BotAction | None:
     response_message = chat_result.response.message
-    content = response_message.content if response_message is not None else None
-    if not _has_sendable_content(content):
+    content = _sendable_content(
+        response_message.content if response_message is not None else None
+    )
+    if content is None:
         return None
 
     return BotAction(
@@ -609,8 +611,10 @@ def _agent_result_to_send_message_action(
     agent_result: AgentRunResult,
 ) -> BotAction | None:
     response_message = agent_result.response.message
-    content = response_message.content if response_message is not None else None
-    if not _has_sendable_content(content):
+    content = _sendable_content(
+        response_message.content if response_message is not None else None
+    )
+    if content is None:
         return None
 
     return BotAction(
@@ -643,7 +647,9 @@ def _agent_tool_results(agent_result: AgentRunResult) -> list[ToolResult]:
     ]
 
 
-def _has_sendable_content(content: list[ContentPart] | None) -> bool:
+def _sendable_content(content: list[ContentPart] | None) -> list[ContentPart] | None:
     if not content:
-        return False
-    return any(part.type != ContentPartType.TEXT or bool(part.text) for part in content)
+        return None
+    if any(part.type != ContentPartType.TEXT or bool(part.text) for part in content):
+        return content
+    return None
