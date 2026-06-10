@@ -68,14 +68,27 @@ class AgentStopReason(StrEnum):
     TOOL_LIMIT = "tool_limit"
 
 
+class AgentPlanningMode(StrEnum):
+    """
+    Agent planner 执行模式。
+    """
+
+    RULE_BASED = "rule_based"
+    LLM = "llm"
+
+
 class AgentPlanningConfig(CyreneAISchema):
     """
     Agent 运行提示配置。
     """
 
     enabled: bool = False
+    mode: AgentPlanningMode = AgentPlanningMode.RULE_BASED
     instructions: str | None = None
     max_objectives: int = Field(default=4, ge=1)
+    max_plan_steps: int = Field(default=6, ge=1, le=20)
+    planner_provider_id: str | None = None
+    planner_model: str | None = None
 
 
 class AgentToolSelectionConfig(CyreneAISchema):
@@ -272,6 +285,7 @@ __all__ = [
     "AgentPlanConstraints",
     "AgentPlanStep",
     "AgentPlanningConfig",
+    "AgentPlanningMode",
     "AgentRunHistoryItem",
     "AgentRunHistoryListResult",
     "AgentRunRequest",

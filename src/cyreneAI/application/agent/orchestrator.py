@@ -19,6 +19,8 @@ from cyreneAI.core.provider.provider_protocol import ChatProviderProtocol
 from cyreneAI.core.schema.agent import (
     AgentMemoryRetrievalConfig,
     AgentPlan,
+    AgentPlanningMode,
+    AgentPlanStep,
     AgentRunRequest,
     AgentRunResult,
     AgentStep,
@@ -88,7 +90,7 @@ class AgentOrchestrator:
             ),
         )
         tools = self._list_tool_definitions(tool_execution_policy=tool_execution_policy)
-        plan = AgentPlanner().build_plan(
+        plan = await self._build_agent_plan(
             request=request,
             tools=tools,
             skill_bundle=skill_bundle,
@@ -152,10 +154,12 @@ class AgentOrchestrator:
                     tool_results=tool_results,
                     metadata=_build_step_metadata(
                         index=index,
+                        request=current_request,
                         response=response,
                         tool_calls=tool_calls,
                         tool_results=tool_results,
                         tool_limit_exceeded=tool_limit_exceeded,
+                        plan=plan,
                     ),
                 )
             )
@@ -214,10 +218,12 @@ class AgentOrchestrator:
                         tool_results=[],
                         metadata=_build_step_metadata(
                             index=len(steps),
+                            request=final_request,
                             response=response,
                             tool_calls=[],
                             tool_results=[],
                             tool_limit_exceeded=False,
+                            plan=plan,
                         ),
                     )
                 )
@@ -268,6 +274,15 @@ class AgentOrchestrator:
                     response=response,
                     tool_calls=[],
                     tool_results=[],
+                    metadata=_build_step_metadata(
+                        index=len(steps),
+                        request=final_request,
+                        response=response,
+                        tool_calls=[],
+                        tool_results=[],
+                        tool_limit_exceeded=False,
+                        plan=plan,
+                    ),
                 )
             )
 
@@ -317,6 +332,39 @@ class AgentOrchestrator:
                     "agent_loop": "minimal",
                 },
             )
+        )
+
+    async def _build_agent_plan(
+        self,
+        *,
+        request: AgentRunRequest,
+        tools: list[ToolDefinition],
+        skill_bundle: SkillInstructionBundle | None,
+    ) -> AgentPlan | None:
+        planner = AgentPlanner()
+        planning = request.planning
+        if (
+            planning is None
+            or not planning.enabled
+            or planning.mode != AgentPlanningMode.LLM
+        ):
+            return planner.build_plan(
+                request=request,
+                tools=tools,
+                skill_bundle=skill_bundle,
+            )
+
+        planner_provider = self._get_chat_provider(
+            planning.planner_provider_id or request.provider_id
+        )
+        return await planner.build_plan_with_model(
+            request=request,
+            tools=tools,
+            skill_bundle=skill_bundle,
+            chat=lambda planner_request: self._chat_provider(
+                planner_provider,
+                planner_request,
+            ),
         )
 
     async def _load_session_history_messages(self, session_id: str) -> list[Message]:
@@ -787,10 +835,12 @@ def _build_run_metadata(
 def _build_step_metadata(
     *,
     index: int,
+    request: ChatRequest,
     response: ChatResponse,
     tool_calls: list[ToolCall],
     tool_results: list[ToolResult],
     tool_limit_exceeded: bool,
+    plan: AgentPlan | None,
 ) -> dict[str, object]:
     return {
         "index": index,
@@ -811,7 +861,124 @@ def _build_step_metadata(
         "tool_success_count": sum(1 for result in tool_results if result.success),
         "tool_error_count": sum(1 for result in tool_results if not result.success),
         "tool_limit_exceeded": tool_limit_exceeded,
+        "plan_execution": _build_plan_execution_metadata(
+            index=index,
+            request=request,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            tool_limit_exceeded=tool_limit_exceeded,
+            plan=plan,
+        ),
     }
+
+
+def _build_plan_execution_metadata(
+    *,
+    index: int,
+    request: ChatRequest,
+    tool_calls: list[ToolCall],
+    tool_results: list[ToolResult],
+    tool_limit_exceeded: bool,
+    plan: AgentPlan | None,
+) -> dict[str, object]:
+    if plan is None or not plan.steps:
+        return {
+            "tracked": False,
+            "status": "untracked",
+            "completed": False,
+            "deviation_reason": None,
+        }
+
+    plan_step = plan.steps[index] if index < len(plan.steps) else None
+    actual_tool_names = [call.name for call in tool_calls]
+    expected_tool_names = list(plan_step.tool_names) if plan_step is not None else []
+    finalization_reason = _plan_execution_finalization_reason(request)
+    deviation_reason = _plan_execution_deviation_reason(
+        plan_step=plan_step,
+        expected_tool_names=expected_tool_names,
+        actual_tool_names=actual_tool_names,
+        tool_results=tool_results,
+        tool_limit_exceeded=tool_limit_exceeded,
+        finalization_reason=finalization_reason,
+    )
+    status = _plan_execution_status(
+        plan_step=plan_step,
+        actual_tool_names=actual_tool_names,
+        expected_tool_names=expected_tool_names,
+        finalization_reason=finalization_reason,
+        deviation_reason=deviation_reason,
+    )
+    completed = status == "completed"
+    metadata: dict[str, object] = {
+        "tracked": True,
+        "status": status,
+        "completed": completed,
+        "deviation_reason": deviation_reason,
+        "plan_step_index": plan_step.index if plan_step is not None else None,
+        "plan_step_objective": plan_step.objective if plan_step is not None else None,
+        "plan_step_action": plan_step.action if plan_step is not None else None,
+        "expected_tool_names": expected_tool_names,
+        "actual_tool_names": actual_tool_names,
+    }
+    if finalization_reason is not None:
+        metadata["finalization_reason"] = finalization_reason
+    return metadata
+
+
+def _plan_execution_finalization_reason(request: ChatRequest) -> str | None:
+    if request.metadata.get("agent_max_steps_finalization") is True:
+        return "agent_max_steps_finalization"
+    if request.metadata.get("agent_tool_limit_finalization") is True:
+        return "agent_tool_limit_finalization"
+    return None
+
+
+def _plan_execution_deviation_reason(
+    *,
+    plan_step: AgentPlanStep | None,
+    expected_tool_names: list[str],
+    actual_tool_names: list[str],
+    tool_results: list[ToolResult],
+    tool_limit_exceeded: bool,
+    finalization_reason: str | None,
+) -> str | None:
+    if finalization_reason is not None:
+        return finalization_reason
+    if plan_step is None:
+        return "agent_step_exceeded_plan"
+    if tool_limit_exceeded:
+        return "tool_limit_exceeded"
+    if any(not result.success for result in tool_results):
+        return "tool_execution_error"
+    unexpected_tool_names = [
+        name for name in actual_tool_names if name not in expected_tool_names
+    ]
+    if unexpected_tool_names:
+        return "unexpected_tool_call"
+    if expected_tool_names and not actual_tool_names:
+        return "planned_tool_not_called"
+    return None
+
+
+def _plan_execution_status(
+    *,
+    plan_step: AgentPlanStep | None,
+    actual_tool_names: list[str],
+    expected_tool_names: list[str],
+    finalization_reason: str | None,
+    deviation_reason: str | None,
+) -> str:
+    if finalization_reason is not None:
+        return "finalizing"
+    if plan_step is None:
+        return "unplanned"
+    if deviation_reason is not None:
+        return "deviated"
+    if actual_tool_names:
+        return "in_progress"
+    if expected_tool_names:
+        return "deviated"
+    return "completed"
 
 
 def _split_tool_calls_for_limits(
@@ -1056,16 +1223,32 @@ def _append_agent_trace_segment(
     context_window: ContextWindow,
     steps: list[AgentStep],
 ) -> ContextWindow:
-    trace_messages: list[Message] = []
+    trace_items: list[tuple[Message, dict[str, object]]] = []
     for step in steps:
         assistant_message = _response_to_assistant_message(step.response)
         if assistant_message is not None:
-            trace_messages.append(assistant_message)
-        trace_messages.extend(
-            _tool_result_to_message(result) for result in step.tool_results
-        )
+            trace_items.append(
+                (
+                    assistant_message,
+                    _build_agent_trace_item_metadata(
+                        step=step,
+                        item_kind="assistant",
+                    ),
+                )
+            )
+        for result in step.tool_results:
+            trace_items.append(
+                (
+                    _tool_result_to_message(result),
+                    _build_agent_trace_item_metadata(
+                        step=step,
+                        item_kind="tool",
+                        tool_result=result,
+                    ),
+                )
+            )
 
-    if not trace_messages:
+    if not trace_items:
         return context_window
 
     segment = ContextSegment(
@@ -1082,10 +1265,11 @@ def _append_agent_trace_segment(
                 source=_map_message_role_to_context_item_source(message.role),
                 message=message,
                 metadata={
+                    **metadata,
                     "agent_trace_index": index,
                 },
             )
-            for index, message in enumerate(trace_messages)
+            for index, (message, metadata) in enumerate(trace_items)
         ],
     )
     return context_window.model_copy(
@@ -1096,6 +1280,25 @@ def _append_agent_trace_segment(
             ]
         }
     )
+
+
+def _build_agent_trace_item_metadata(
+    *,
+    step: AgentStep,
+    item_kind: str,
+    tool_result: ToolResult | None = None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "agent_step_index": step.index,
+        "agent_trace_kind": item_kind,
+    }
+    plan_execution = step.metadata.get("plan_execution")
+    if isinstance(plan_execution, dict):
+        metadata["plan_execution"] = cast(dict[str, object], plan_execution)
+    if tool_result is not None:
+        metadata["tool_name"] = tool_result.name
+        metadata["tool_success"] = tool_result.success
+    return metadata
 
 
 def _append_tool_feedback_messages(

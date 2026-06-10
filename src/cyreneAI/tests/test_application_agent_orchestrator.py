@@ -17,6 +17,7 @@ from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.agent import (
     AgentMemoryRetrievalConfig,
     AgentPlanningConfig,
+    AgentPlanningMode,
     AgentToolSelectionConfig,
 )
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
@@ -440,6 +441,7 @@ async def _run_agent_stops_after_max_steps() -> None:
             model="fake-model",
             goal="Keep going.",
             max_steps=1,
+            planning=AgentPlanningConfig(enabled=True, max_objectives=2),
         )
     )
 
@@ -455,6 +457,14 @@ async def _run_agent_stops_after_max_steps() -> None:
     assert result.steps[1].request.tools is None
     assert result.steps[1].request.tool_choice is None
     assert result.steps[1].request.metadata["agent_max_steps_finalization"] is True
+    final_plan_execution = result.steps[1].metadata["plan_execution"]
+    assert isinstance(final_plan_execution, dict)
+    assert final_plan_execution["status"] == "finalizing"
+    assert final_plan_execution["completed"] is False
+    assert final_plan_execution["deviation_reason"] == "agent_max_steps_finalization"
+    assert final_plan_execution["finalization_reason"] == (
+        "agent_max_steps_finalization"
+    )
     assert len(provider.requests) == 2
 
 
@@ -702,6 +712,306 @@ def test_agent_orchestrator_builds_plan_and_selects_tools() -> None:
     asyncio.run(_run_agent_builds_plan_and_selects_tools())
 
 
+async def _run_agent_builds_llm_plan_from_provider_response() -> None:
+    planner_payload = {
+        "goal": "Find the project status.",
+        "objectives": [
+            "Inspect available project status evidence.",
+            "Return the current status.",
+        ],
+        "steps": [
+            {
+                "objective": "Inspect available project status evidence.",
+                "action": "Use lookup for current project status.",
+                "tool_names": ["lookup", "delete"],
+                "skill_names": [],
+            },
+            {
+                "objective": "Return the current status.",
+                "action": "Summarize the status from evidence.",
+                "tool_names": [],
+                "skill_names": [],
+            },
+        ],
+    }
+    provider = FakeChatProvider(
+        [
+            ChatResponse(
+                provider_id="provider-1",
+                model="planner-model",
+                message=_message(
+                    MessageRole.ASSISTANT,
+                    json.dumps(planner_payload, sort_keys=True),
+                ),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "final"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+        ]
+    )
+    tool_registry = ToolRegistry()
+    tool_registry.register(
+        ToolDefinition(name="lookup", description="Lookup a value."),
+        RecordingToolExecutor(),
+    )
+    tool_registry.register(
+        ToolDefinition(name="delete", description="Delete a value."),
+        RecordingToolExecutor(),
+    )
+    runtime = await _build_runtime(provider, tool_registry)
+
+    result = await AgentOrchestrator(runtime).run(
+        AgentRunRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            goal="Find the project status.",
+            planning=AgentPlanningConfig(
+                enabled=True,
+                mode=AgentPlanningMode.LLM,
+                instructions="Prefer low-risk tools first.",
+                max_objectives=3,
+                max_plan_steps=3,
+                planner_model="planner-model",
+            ),
+            tool_selection=AgentToolSelectionConfig(
+                allowed_tool_names=["lookup"],
+                denied_tool_names=["delete"],
+            ),
+        )
+    )
+
+    assert result.plan is not None
+    assert result.plan.goal == "Find the project status."
+    assert result.plan.objectives == [
+        "Inspect available project status evidence.",
+        "Return the current status.",
+    ]
+    assert result.plan.steps[0].action == "Use lookup for current project status."
+    assert result.plan.steps[0].tool_names == ["lookup"]
+    assert result.plan.steps[1].tool_names == []
+    assert result.plan.selected_tool_names == ["lookup"]
+    assert result.plan.constraints.denied_tool_names == ["delete"]
+    assert result.plan.metadata["planning_mode"] == "llm"
+    assert result.plan.metadata["planner_model"] == "planner-model"
+
+    planner_request = provider.requests[0]
+    assert planner_request.model == "planner-model"
+    assert planner_request.tools is None
+    assert planner_request.metadata["agent_planner"] is True
+    assert planner_request.metadata["agent_planner_mode"] == "llm"
+    assert planner_request.messages[0].name == "agent_planner"
+    assert planner_request.messages[1].content is not None
+    planner_request_payload = json.loads(planner_request.messages[1].content[0].text)
+    assert planner_request_payload["constraints"]["selected_tool_names"] == ["lookup"]
+    assert planner_request_payload["constraints"]["denied_tool_names"] == ["delete"]
+
+    agent_request = provider.requests[1]
+    assert agent_request.model == "fake-model"
+    assert agent_request.messages[0].name == "agent_plan"
+    assert agent_request.metadata["agent_plan_mode"] == "llm"
+    assert agent_request.metadata["agent_plan_step_count"] == 2
+    plan_execution = result.steps[0].metadata["plan_execution"]
+    assert isinstance(plan_execution, dict)
+    assert plan_execution["status"] == "deviated"
+    assert plan_execution["completed"] is False
+    assert plan_execution["plan_step_index"] == 0
+    assert plan_execution["expected_tool_names"] == ["lookup"]
+    assert plan_execution["actual_tool_names"] == []
+    assert plan_execution["deviation_reason"] == "planned_tool_not_called"
+
+
+def test_agent_orchestrator_builds_llm_plan_from_provider_response() -> None:
+    asyncio.run(_run_agent_builds_llm_plan_from_provider_response())
+
+
+async def _run_agent_records_plan_execution_awareness() -> None:
+    tool_call = ToolCall(
+        id="call-1",
+        name="lookup",
+        arguments='{"query":"status"}',
+    )
+    planner_payload = {
+        "goal": "Find the project status.",
+        "objectives": [
+            "Look up project status evidence.",
+            "Return the final status.",
+        ],
+        "steps": [
+            {
+                "objective": "Look up project status evidence.",
+                "action": "Call lookup for current project status.",
+                "tool_names": ["lookup"],
+                "skill_names": [],
+            },
+            {
+                "objective": "Return the final status.",
+                "action": "Answer from the lookup result.",
+                "tool_names": [],
+                "skill_names": [],
+            },
+        ],
+    }
+    provider = FakeChatProvider(
+        [
+            ChatResponse(
+                provider_id="provider-1",
+                model="planner-model",
+                message=_message(
+                    MessageRole.ASSISTANT,
+                    json.dumps(planner_payload, sort_keys=True),
+                ),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[tool_call],
+                ),
+                tool_calls=[tool_call],
+                finish_reason=ChatFinishReason.TOOL_CALLS,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "final status"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+        ]
+    )
+    tool_registry = ToolRegistry()
+    tool_registry.register(
+        ToolDefinition(name="lookup", description="Lookup a value."),
+        RecordingToolExecutor(),
+    )
+    runtime = await _build_runtime(provider, tool_registry)
+
+    result = await AgentOrchestrator(runtime).run(
+        AgentRunRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            goal="Find the project status.",
+            planning=AgentPlanningConfig(
+                enabled=True,
+                mode=AgentPlanningMode.LLM,
+                planner_model="planner-model",
+            ),
+            tool_selection=AgentToolSelectionConfig(
+                allowed_tool_names=["lookup"],
+            ),
+        )
+    )
+
+    assert result.completed is True
+    assert len(result.steps) == 2
+
+    first_plan_execution = result.steps[0].metadata["plan_execution"]
+    assert isinstance(first_plan_execution, dict)
+    assert first_plan_execution["tracked"] is True
+    assert first_plan_execution["status"] == "in_progress"
+    assert first_plan_execution["completed"] is False
+    assert first_plan_execution["deviation_reason"] is None
+    assert first_plan_execution["plan_step_index"] == 0
+    assert first_plan_execution["plan_step_objective"] == (
+        "Look up project status evidence."
+    )
+    assert first_plan_execution["expected_tool_names"] == ["lookup"]
+    assert first_plan_execution["actual_tool_names"] == ["lookup"]
+
+    final_plan_execution = result.steps[1].metadata["plan_execution"]
+    assert isinstance(final_plan_execution, dict)
+    assert final_plan_execution["tracked"] is True
+    assert final_plan_execution["status"] == "completed"
+    assert final_plan_execution["completed"] is True
+    assert final_plan_execution["deviation_reason"] is None
+    assert final_plan_execution["plan_step_index"] == 1
+    assert final_plan_execution["expected_tool_names"] == []
+    assert final_plan_execution["actual_tool_names"] == []
+
+    assert result.metadata["steps"][0]["plan_execution"] == first_plan_execution
+    assert result.metadata["steps"][1]["plan_execution"] == final_plan_execution
+
+    trace_items = result.context_snapshot.window.segments[-1].items
+    assert len(trace_items) == 3
+    assert trace_items[0].metadata["agent_step_index"] == 0
+    assert trace_items[0].metadata["agent_trace_kind"] == "assistant"
+    assert trace_items[0].metadata["plan_execution"] == first_plan_execution
+    assert trace_items[1].metadata["agent_step_index"] == 0
+    assert trace_items[1].metadata["agent_trace_kind"] == "tool"
+    assert trace_items[1].metadata["tool_name"] == "lookup"
+    assert trace_items[1].metadata["tool_success"] is True
+    assert trace_items[1].metadata["plan_execution"] == first_plan_execution
+    assert trace_items[2].metadata["agent_step_index"] == 1
+    assert trace_items[2].metadata["agent_trace_kind"] == "assistant"
+    assert trace_items[2].metadata["plan_execution"] == final_plan_execution
+
+
+def test_agent_orchestrator_records_plan_execution_awareness() -> None:
+    asyncio.run(_run_agent_records_plan_execution_awareness())
+
+
+async def _run_agent_falls_back_when_llm_plan_is_invalid() -> None:
+    provider = FakeChatProvider(
+        [
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "not json"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+            ChatResponse(
+                provider_id="provider-1",
+                model="fake-model",
+                message=_message(MessageRole.ASSISTANT, "final"),
+                finish_reason=ChatFinishReason.STOP,
+            ),
+        ]
+    )
+    tool_registry = ToolRegistry()
+    tool_registry.register(
+        ToolDefinition(name="lookup", description="Lookup a value."),
+        RecordingToolExecutor(),
+    )
+    runtime = await _build_runtime(provider, tool_registry)
+
+    result = await AgentOrchestrator(runtime).run(
+        AgentRunRequest(
+            session_id="session-1",
+            provider_id="provider-1",
+            model="fake-model",
+            goal="Find the project status.",
+            planning=AgentPlanningConfig(
+                enabled=True,
+                mode=AgentPlanningMode.LLM,
+                max_objectives=2,
+            ),
+        )
+    )
+
+    assert result.plan is not None
+    assert result.plan.metadata["planning_mode"] == "planner_step"
+    assert result.plan.metadata["planning_fallback"] is True
+    assert result.plan.metadata["planning_fallback_from"] == "llm"
+    assert result.plan.metadata["requested_planning_mode"] == "llm"
+    assert result.plan.metadata["planning_error_type"] == "ValidationError"
+    assert len(result.plan.objectives) == 2
+
+    assert provider.requests[0].metadata["agent_planner"] is True
+    assert provider.requests[1].metadata["agent_plan_mode"] == "planner_step"
+    assert provider.requests[1].messages[0].name == "agent_plan"
+
+
+def test_agent_orchestrator_falls_back_when_llm_plan_is_invalid() -> None:
+    asyncio.run(_run_agent_falls_back_when_llm_plan_is_invalid())
+
+
 async def _run_agent_builds_skill_bundle_and_constrains_tools() -> None:
     provider = FakeChatProvider(
         ChatResponse(
@@ -899,6 +1209,7 @@ async def _run_agent_stops_when_tool_call_limit_is_exceeded() -> None:
             provider_id="provider-1",
             model="fake-model",
             goal="Use tools.",
+            planning=AgentPlanningConfig(enabled=True, max_objectives=2),
             max_tool_calls_per_step=1,
         )
     )
@@ -912,6 +1223,17 @@ async def _run_agent_stops_when_tool_call_limit_is_exceeded() -> None:
     assert result.metadata["tool_error_count"] == 1
     assert provider.requests[1].tools is None
     assert provider.requests[1].metadata["agent_tool_limit_finalization"] is True
+    limited_plan_execution = result.steps[0].metadata["plan_execution"]
+    assert isinstance(limited_plan_execution, dict)
+    assert limited_plan_execution["status"] == "deviated"
+    assert limited_plan_execution["deviation_reason"] == "tool_limit_exceeded"
+    final_plan_execution = result.steps[1].metadata["plan_execution"]
+    assert isinstance(final_plan_execution, dict)
+    assert final_plan_execution["status"] == "finalizing"
+    assert final_plan_execution["deviation_reason"] == "agent_tool_limit_finalization"
+    assert final_plan_execution["finalization_reason"] == (
+        "agent_tool_limit_finalization"
+    )
 
 
 def test_agent_orchestrator_stops_when_tool_call_limit_is_exceeded() -> None:
