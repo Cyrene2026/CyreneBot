@@ -5,7 +5,7 @@ import json
 import shlex
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.errors.tool import ToolExecutionError, ToolPolicyError
 from cyreneAI.core.schema.tool import (
@@ -209,7 +209,7 @@ class _ControlledShellExecutor:
         )
         review_approved = _optional_bool(arguments.get("review_approved"))
         decision = _classify_command(argv, self._policy)
-        metadata = {
+        metadata: dict[str, object] = {
             "argv": argv,
             "cwd": str(cwd),
             "decision": decision.value,
@@ -315,7 +315,7 @@ def _parse_argv(value: object, *, policy: ShellCommandPolicy) -> list[str]:
         argv = shlex.split(stripped, posix=sys.platform != "win32")
     elif isinstance(value, list):
         argv = []
-        for item in value:
+        for item in cast(list[object], value):
             if not isinstance(item, str) or not item.strip():
                 raise ToolExecutionError(
                     "command array items must be non-empty strings"

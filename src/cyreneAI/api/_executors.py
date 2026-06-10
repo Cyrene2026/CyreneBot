@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from inspect import isawaitable, signature
-from typing import Any
+from inspect import Signature, isawaitable, signature
+from typing import Any, cast
 
 from cyreneAI.api._arguments import (
     _build_handler_arguments,
@@ -248,11 +248,11 @@ def _parse_tool_arguments(arguments: str | None) -> dict[str, Any]:
         raise ToolInputError("Tool arguments must be valid JSON", cause=exc) from exc
     if not isinstance(parsed, dict):
         raise ToolInputError("Tool arguments must be a JSON object")
-    return parsed
+    return cast(dict[str, Any], parsed)
 
 
 def _build_tool_handler_arguments(
-    handler_signature,
+    handler_signature: Signature,
     type_hints: dict[str, Any],
     arguments: dict[str, Any],
     call: ToolCall,

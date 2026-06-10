@@ -170,8 +170,8 @@ def _message_route_attrs(event_type: str) -> tuple[str, ...]:
 
 def _load_botpy() -> tuple[Any, type]:
     try:
-        import botpy
-        from botpy import Client
+        import botpy  # type: ignore[reportMissingTypeStubs]
+        from botpy import Client  # type: ignore[reportMissingTypeStubs]
     except ModuleNotFoundError as exc:
         raise BotConfigurationError(
             "QQ websocket mode requires qq-botpy. Install the dev dependencies "

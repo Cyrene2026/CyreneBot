@@ -96,7 +96,11 @@ class QQBotClient:
             response = await self._request(path, payload or {})
             body = _parse_response_body(response)
             if response.status_code >= 400:
-                response_body = body if isinstance(body, dict) else {"result": body}
+                response_body: dict[str, Any]
+                if isinstance(body, dict):
+                    response_body = cast(dict[str, Any], body)
+                else:
+                    response_body = {"result": body}
                 raise QQBotAPIError(
                     _qq_status_error_message(
                         response.status_code,
@@ -104,7 +108,7 @@ class QQBotClient:
                         path=path,
                     ),
                     error_code=response.status_code,
-                    payload=cast(dict[str, Any], response_body),
+                    payload=response_body,
                 )
             if not isinstance(body, dict):
                 return {"result": body}

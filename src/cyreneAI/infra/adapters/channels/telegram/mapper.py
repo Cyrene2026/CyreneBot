@@ -133,7 +133,9 @@ def _image_content_parts(message: dict[str, Any]) -> list[ContentPart]:
     photo = message.get("photo")
     if isinstance(photo, list) and photo:
         photo_items = [
-            cast(dict[str, Any], item) for item in photo if isinstance(item, dict)
+            cast(dict[str, Any], item)
+            for item in cast(list[object], photo)
+            if isinstance(item, dict)
         ]
         if photo_items:
             item = photo_items[-1]

@@ -303,7 +303,7 @@ def build_mcp_stdio_servers_from_env() -> list[MCPStdioServerConfig]:
         raise ValueError("CYRENEAI_MCP_STDIO_SERVERS_JSON must be a JSON array")
     return [
         MCPStdioServerConfig.model_validate(item)
-        for item in parsed
+        for item in cast(list[object], parsed)
         if isinstance(item, dict)
     ]
 

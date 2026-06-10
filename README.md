@@ -127,6 +127,10 @@ build runtime -> 配置 provider -> index documents -> RAG chat -> close runtime
 PYTHONPATH=src uv run python examples/rag_demo.py
 ```
 
+运行前需要创建 `docs/` 目录，并放入至少一个非空 `.md` 或 `.txt` 文件。
+这个示例依赖完整 runtime 源码路径；仅安装 `cyreneai-plugin-sdk` 不包含
+`cyreneAI.bootstrap`、`application` 或 `infra`。
+
 需要环境变量：
 
 ```bash

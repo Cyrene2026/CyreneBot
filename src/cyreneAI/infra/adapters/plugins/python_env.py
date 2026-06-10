@@ -7,7 +7,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from cyreneAI.core.errors.plugin import PluginConfigurationError
 from cyreneAI.core.schema.plugin import PluginManifest
@@ -165,7 +165,7 @@ def _environment_metadata(
     content_hash: str,
     dependencies: list[str],
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, object] = {
         "plugin_id": manifest.plugin_id,
         "version": manifest.version,
         "content_hash": content_hash,
@@ -221,7 +221,7 @@ def _site_paths(env_path: Path) -> tuple[Path, ...]:
         raise PluginConfigurationError(
             f"Plugin Python environment {env_path} returned invalid site-packages"
         )
-    return tuple(Path(str(path)) for path in paths)
+    return tuple(Path(str(path)) for path in cast(list[object], paths))
 
 
 def _run_command(

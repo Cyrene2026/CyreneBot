@@ -103,7 +103,11 @@ async def _list_mcp_tools(config: MCPStdioServerConfig) -> list[dict[str, Any]]:
     tools = response.get("tools")
     if not isinstance(tools, list):
         raise ToolConfigurationError(f"MCP server {config.name} returned invalid tools")
-    return [cast(dict[str, Any], tool) for tool in tools if isinstance(tool, dict)]
+    return [
+        cast(dict[str, Any], tool)
+        for tool in cast(list[object], tools)
+        if isinstance(tool, dict)
+    ]
 
 
 async def _call_mcp_tool(
@@ -274,10 +278,11 @@ def _mcp_content_to_text(content: Any) -> str:
     if not isinstance(content, list):
         return json.dumps(content, ensure_ascii=False, sort_keys=True)
     parts: list[str] = []
-    for item in content:
+    for item in cast(list[object], content):
         if not isinstance(item, dict):
             parts.append(str(item))
             continue
+        item = cast(dict[str, Any], item)
         item_type = item.get("type")
         if item_type == "text" and isinstance(item.get("text"), str):
             parts.append(item["text"])

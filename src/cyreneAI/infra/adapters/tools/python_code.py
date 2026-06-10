@@ -107,17 +107,20 @@ class _PythonCodeInterpreterExecutor:
         if len(stderr) > self._max_stderr_bytes:
             raise ToolExecutionError("code_interpreter stderr exceeded maximum size")
 
-        payload = {
-            "exit_code": process.returncode,
-            "stdout": stdout.decode("utf-8", errors="replace"),
-            "stderr": stderr.decode("utf-8", errors="replace"),
+        exit_code = process.returncode
+        stdout_text = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace")
+        payload: dict[str, int | str | None] = {
+            "exit_code": exit_code,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
         }
         return ToolResult(
             call_id=call.id,
             name=call.name,
             content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
-            success=process.returncode == 0,
-            error=payload["stderr"] or None if process.returncode != 0 else None,
+            success=exit_code == 0,
+            error=stderr_text or None if exit_code != 0 else None,
         )
 
 

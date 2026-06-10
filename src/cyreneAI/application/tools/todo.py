@@ -16,12 +16,15 @@ from cyreneAI.core.schema.tool import (
 )
 from cyreneAI.core.tool.tool_protocol import ToolExecutorProtocol, ToolRegistryProtocol
 
+_TodoRecord = dict[str, str | bool | list[str] | None]
+_TodoStore = dict[str, _TodoRecord]
+
 
 def register_todo_tools(registry: ToolRegistryProtocol) -> None:
     """
     Register simple in-memory todo tools for agent-visible task tracking.
     """
-    store: dict[str, dict[str, Any]] = {}
+    store: _TodoStore = {}
     _register_if_missing(
         registry,
         ToolDefinition(
@@ -102,7 +105,7 @@ def register_todo_tools(registry: ToolRegistryProtocol) -> None:
 
 
 class _CreateTodoToolExecutor:
-    def __init__(self, store: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, store: _TodoStore) -> None:
         self._store = store
 
     async def execute(self, call: ToolCall) -> ToolResult:
@@ -110,7 +113,7 @@ class _CreateTodoToolExecutor:
         title = _required_string(arguments, "title")
         tags = _optional_string_list(arguments.get("tags"))
         todo_id = uuid4().hex
-        todo = {
+        todo: _TodoRecord = {
             "todo_id": todo_id,
             "title": title,
             "due_at": _optional_string(arguments.get("due_at")),
@@ -124,7 +127,7 @@ class _CreateTodoToolExecutor:
 
 
 class _ListTodosToolExecutor:
-    def __init__(self, store: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, store: _TodoStore) -> None:
         self._store = store
 
     async def execute(self, call: ToolCall) -> ToolResult:
@@ -150,7 +153,7 @@ class _ListTodosToolExecutor:
 
 
 class _CompleteTodoToolExecutor:
-    def __init__(self, store: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, store: _TodoStore) -> None:
         self._store = store
 
     async def execute(self, call: ToolCall) -> ToolResult:
@@ -210,7 +213,7 @@ def _optional_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         raise ToolExecutionError("tags must be an array")
     tags: list[str] = []
-    for item in value:
+    for item in cast(list[object], value):
         if not isinstance(item, str):
             raise ToolExecutionError("tags must contain only strings")
         stripped = item.strip()

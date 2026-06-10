@@ -245,7 +245,7 @@ def _attachment_image_parts(attachments: Any) -> list[ContentPart]:
         return []
 
     parts: list[ContentPart] = []
-    for attachment in attachments:
+    for attachment in cast(list[object], attachments):
         if not _is_image_attachment(attachment):
             continue
         parts.append(
