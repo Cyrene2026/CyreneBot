@@ -3,8 +3,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.server.channel_polling import ChannelPollingRunner
@@ -46,6 +49,7 @@ def create_app(
     telegram_polling_limit: int | None = None,
     request_logging_enabled: bool = True,
     request_id_header: str = DEFAULT_REQUEST_ID_HEADER,
+    frontend_dist_path: str | Path | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -101,6 +105,7 @@ def create_app(
     app.include_router(channels.router)
     app.include_router(telegram.router)
     app.include_router(qq.router)
+    _install_frontend_routes(app, frontend_dist_path)
     return app
 
 
@@ -120,6 +125,7 @@ def create_app_with_runtime_builder(
     telegram_polling_limit: int | None = None,
     request_logging_enabled: bool = True,
     request_id_header: str = DEFAULT_REQUEST_ID_HEADER,
+    frontend_dist_path: str | Path | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -177,7 +183,57 @@ def create_app_with_runtime_builder(
     app.include_router(channels.router)
     app.include_router(telegram.router)
     app.include_router(qq.router)
+    _install_frontend_routes(app, frontend_dist_path)
     return app
+
+
+def _install_frontend_routes(
+    app: FastAPI,
+    frontend_dist_path: str | Path | None,
+) -> None:
+    dist_path = _resolve_frontend_dist_path(frontend_dist_path)
+    index_path = dist_path / "index.html"
+    if not index_path.is_file():
+        logger.info("CyreneBot frontend disabled: dist not found at %s", dist_path)
+        app.state.frontend_dist_path = None
+        return
+
+    assets_path = dist_path / "assets"
+    if not assets_path.is_dir():
+        logger.info("CyreneBot frontend disabled: assets not found at %s", assets_path)
+        app.state.frontend_dist_path = None
+        return
+
+    favicon_path = dist_path / "favicon.svg"
+    icons_path = dist_path / "icons.svg"
+
+    app.mount(
+        "/assets",
+        StaticFiles(directory=assets_path),
+        name="frontend_assets",
+    )
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/console", include_in_schema=False)
+    async def frontend_index() -> FileResponse:
+        return FileResponse(index_path)
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def frontend_favicon() -> FileResponse:
+        return FileResponse(favicon_path)
+
+    @app.get("/icons.svg", include_in_schema=False)
+    async def frontend_icons() -> FileResponse:
+        return FileResponse(icons_path)
+
+    app.state.frontend_dist_path = str(dist_path)
+    logger.info("CyreneBot frontend enabled: dist=%s", dist_path)
+
+
+def _resolve_frontend_dist_path(frontend_dist_path: str | Path | None) -> Path:
+    if frontend_dist_path is not None:
+        return Path(frontend_dist_path).resolve()
+    return (Path(__file__).resolve().parents[3] / "frontend" / "dist").resolve()
 
 
 def _log_plugin_startup_state(runtime: CyreneAIRuntime) -> None:

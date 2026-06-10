@@ -1,0 +1,352 @@
+export class ApiError extends Error {
+  status: number
+  payload: unknown
+
+  constructor(status: number, message: string, payload: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
+export interface ProviderInfo {
+  provider_type: string
+  name: string
+  description: string
+  models?: string[] | null
+  capabilities?: string[] | null
+  features?: string[] | null
+}
+
+export interface ProviderModel {
+  model_id: string
+  name?: string | null
+  metadata?: Record<string, string>
+}
+
+export interface ProviderConfigSummary {
+  provider_id: string
+  provider_type: string
+  has_api_key: boolean
+  base_url?: string | null
+  timeout?: string | number | null
+  enabled: boolean
+  metadata?: Record<string, string>
+}
+
+export interface ProviderAdminStatus {
+  provider_id: string
+  provider_type?: string | null
+  configured: boolean
+  running: boolean
+  enabled: boolean
+  info?: ProviderInfo | null
+  config?: ProviderConfigSummary | null
+}
+
+export interface ProviderOperationResult {
+  action: string
+  provider_id: string
+  accepted: boolean
+  detail?: string | null
+  status?: ProviderAdminStatus | null
+}
+
+export interface ProviderConnectionCheckResult {
+  provider_id: string
+  ok: boolean
+  detail?: string | null
+  models: ProviderModel[]
+}
+
+export interface ContentPart {
+  type: string
+  text?: string | null
+  url?: string | null
+  data?: string | null
+  mime_type?: string | null
+  detail?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export interface Message {
+  role: string
+  content?: ContentPart[] | null
+  name?: string | null
+  tool_call_id?: string | null
+  tool_calls?: ToolCall[] | null
+  metadata?: Record<string, unknown>
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  arguments?: string | null
+}
+
+export interface ToolResult {
+  call_id: string
+  name: string
+  content?: string | null
+  success: boolean
+  error?: string | null
+  requires_replan?: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface ChatProviderResponse {
+  provider_id: string
+  model: string
+  message?: Message | null
+  tool_calls?: ToolCall[] | null
+  finish_reason?: string | null
+  usage?: unknown
+  raw?: unknown
+}
+
+export interface ChatResponse {
+  response: ChatProviderResponse
+  context_snapshot?: unknown
+  completed?: boolean
+  stop_reason?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface AgentStep {
+  index: number
+  request?: unknown
+  response?: ChatProviderResponse | null
+  tool_calls?: ToolCall[]
+  tool_results?: ToolResult[]
+  metadata?: Record<string, unknown>
+}
+
+export interface AgentRunResponse {
+  response: ChatProviderResponse
+  steps: AgentStep[]
+  plan?: unknown
+  skill_bundle?: unknown
+  context_snapshot?: unknown
+  completed: boolean
+  stop_reason: string
+  metadata?: Record<string, unknown>
+}
+
+export interface PluginDefinition {
+  plugin_id: string
+  name?: string | null
+  version: string
+  description?: string | null
+  enabled: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface PluginStatusReport {
+  plugin_id: string
+  status: string
+  reason?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export interface PluginCommandDefinition {
+  plugin_id: string
+  name: string
+  usage?: string | null
+  description?: string | null
+  aliases?: string[]
+  enabled?: boolean
+}
+
+const API_BASE = import.meta.env.VITE_CYRENE_API_BASE_URL ?? ''
+
+export async function checkHealth() {
+  return request<{ status: string }>('/health')
+}
+
+export async function checkReady() {
+  return request<{ status: string }>('/ready', { allowErrorBody: true })
+}
+
+export async function login(username: string, password: string) {
+  const body = new URLSearchParams()
+  body.set('username', username)
+  body.set('password', password)
+  return request<{ authenticated: boolean }>('/auth/login', {
+    method: 'POST',
+    body,
+  })
+}
+
+export async function logout() {
+  return request<{ authenticated: boolean }>('/auth/logout', { method: 'POST' })
+}
+
+export async function listProviderStatuses() {
+  return request<{ providers: ProviderAdminStatus[] }>('/providers/statuses')
+}
+
+export async function listProviderCatalog() {
+  return request<{ providers: ProviderInfo[] }>('/providers/catalog')
+}
+
+export async function listProviderConfigs() {
+  return request<{ configs: ProviderConfigSummary[] }>('/providers/configs')
+}
+
+export async function listProviderModels(providerId: string) {
+  return request<{ models: ProviderModel[] }>(
+    `/providers/${encodeURIComponent(providerId)}/models`
+  )
+}
+
+export async function startProvider(providerId: string) {
+  return providerAction(providerId, 'start')
+}
+
+export async function stopProvider(providerId: string) {
+  return providerAction(providerId, 'stop')
+}
+
+export async function reloadProvider(providerId: string) {
+  return providerAction(providerId, 'reload')
+}
+
+export async function checkProvider(providerId: string) {
+  return request<ProviderConnectionCheckResult>(
+    `/providers/${encodeURIComponent(providerId)}/check`,
+    { method: 'POST' }
+  )
+}
+
+export async function chat(body: Record<string, unknown>) {
+  return request<ChatResponse>('/chat', {
+    method: 'POST',
+    json: body,
+  })
+}
+
+export async function runAgent(body: Record<string, unknown>) {
+  return request<AgentRunResponse>('/agents/run', {
+    method: 'POST',
+    json: body,
+  })
+}
+
+export interface GeneratedImage {
+  index: number
+  url?: string | null
+  b64_json?: string | null
+  mime_type?: string | null
+  revised_prompt?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export interface ImageGenerationResponse {
+  provider_id: string
+  model?: string | null
+  images: GeneratedImage[]
+  raw?: unknown
+}
+
+export interface ImageGenerationResult {
+  response: ImageGenerationResponse
+  metadata?: Record<string, unknown>
+}
+
+export async function generateImage(body: Record<string, unknown>) {
+  return request<ImageGenerationResult>('/images/generate', {
+    method: 'POST',
+    json: body,
+  })
+}
+
+export async function listPlugins() {
+  return request<{ plugins: PluginDefinition[] }>('/plugins')
+}
+
+export async function listPluginStatuses() {
+  return request<{ statuses: PluginStatusReport[] }>('/plugins/statuses')
+}
+
+export async function listPluginCommands() {
+  return request<{ commands: PluginCommandDefinition[] }>('/plugins/commands')
+}
+
+export async function enablePlugin(pluginId: string) {
+  return pluginAction(pluginId, 'enable')
+}
+
+export async function disablePlugin(pluginId: string) {
+  return pluginAction(pluginId, 'disable')
+}
+
+export async function reloadPlugin(pluginId: string) {
+  return pluginAction(pluginId, 'reload')
+}
+
+async function providerAction(providerId: string, action: string) {
+  return request<ProviderOperationResult>(
+    `/providers/${encodeURIComponent(providerId)}/${action}`,
+    { method: 'POST' }
+  )
+}
+
+async function pluginAction(pluginId: string, action: string) {
+  return request<PluginDefinition | { accepted: boolean; detail?: string }>(
+    `/plugins/${encodeURIComponent(pluginId)}/${action}`,
+    { method: 'POST' }
+  )
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit & {
+    json?: unknown
+    allowErrorBody?: boolean
+  } = {}
+): Promise<T> {
+  const headers = new Headers(options.headers)
+  let body = options.body
+
+  if (options.json !== undefined) {
+    headers.set('Content-Type', 'application/json')
+    body = JSON.stringify(options.json)
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    body,
+    headers,
+    credentials: 'include',
+  })
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    const message = extractErrorMessage(payload) || response.statusText
+    if (options.allowErrorBody) {
+      return payload as T
+    }
+    throw new ApiError(response.status, message, payload)
+  }
+
+  return payload as T
+}
+
+async function parsePayload(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return {}
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+function extractErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const detail = (payload as { detail?: unknown }).detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map(String).join(', ')
+  return null
+}

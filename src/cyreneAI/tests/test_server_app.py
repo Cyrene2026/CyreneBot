@@ -602,6 +602,46 @@ def test_server_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_server_serves_frontend_dist(tmp_path) -> None:
+    dist_path = tmp_path / "frontend-dist"
+    assets_path = dist_path / "assets"
+    assets_path.mkdir(parents=True)
+    (dist_path / "index.html").write_text(
+        '<html><head><script src="/assets/app.js"></script></head>'
+        "<body>CyreneBot Console</body></html>",
+        encoding="utf-8",
+    )
+    (assets_path / "app.js").write_text(
+        "console.log('console ready')",
+        encoding="utf-8",
+    )
+    (dist_path / "favicon.svg").write_text("<svg />", encoding="utf-8")
+    (dist_path / "icons.svg").write_text("<svg />", encoding="utf-8")
+    runtime = asyncio.run(_build_fake_runtime())
+    client = TestClient(
+        create_app(
+            runtime,
+            settings=ServerSettings(auth_enabled=False),
+            frontend_dist_path=dist_path,
+        )
+    )
+
+    index_response = client.get("/")
+    console_response = client.get("/console")
+    asset_response = client.get("/assets/app.js")
+
+    assert index_response.status_code == 200
+    assert "CyreneBot Console" in index_response.text
+    assert console_response.status_code == 200
+    assert "CyreneBot Console" in console_response.text
+    assert asset_response.status_code == 200
+    assert "console ready" in asset_response.text
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/package.json").status_code == 404
+    assert client.get("/src/App.vue").status_code == 404
+    assert client.get("/assets/../index.html").status_code == 404
+
+
 def test_server_request_logging_propagates_request_id(caplog) -> None:
     client = _client()
 
