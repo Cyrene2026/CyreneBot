@@ -1,14 +1,15 @@
-from typing import Any, cast
+from typing import Any, AsyncIterator, cast
 
 from anthropic import AsyncAnthropic
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError
-from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse, ChatStreamChunk
 from cyreneAI.core.schema.provider import ProviderConfig, ProviderInfo, ProviderModel
 from cyreneAI.infra.adapters.providers.anthropic.errors import raise_anthropic_error
 from cyreneAI.infra.adapters.providers.anthropic.mapper import (
     map_anthropic_request,
     map_anthropic_response,
+    map_anthropic_stream_event,
 )
 from cyreneAI.infra.adapters.providers.model_mapper import map_provider_model
 
@@ -43,6 +44,28 @@ class AnthropicProviderInstance:
                 provider_id=self.config.provider_id,
                 response=response,
             )
+        except Exception as exc:
+            raise_anthropic_error(exc)
+
+    async def chat_stream(
+        self,
+        request: ChatRequest,
+    ) -> AsyncIterator[ChatStreamChunk]:
+        try:
+            payload = map_anthropic_request(request)
+            payload["stream"] = True
+            stream = cast(Any, await self._client.messages.create(**payload))
+        except Exception as exc:
+            raise_anthropic_error(exc)
+
+        try:
+            async for event in stream:
+                chunk = map_anthropic_stream_event(
+                    provider_id=self.config.provider_id,
+                    event=event,
+                )
+                if chunk is not None:
+                    yield chunk
         except Exception as exc:
             raise_anthropic_error(exc)
 

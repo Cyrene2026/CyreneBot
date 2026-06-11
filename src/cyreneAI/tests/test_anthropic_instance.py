@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -79,18 +80,34 @@ class _FakeMessages:
     def __init__(
         self,
         response: AnthropicMessage | None = None,
+        stream_events: list[Any] | None = None,
         error: Exception | None = None,
     ) -> None:
         self.response = response
+        self.stream_events = stream_events
         self.error = error
         self.payload: dict[str, Any] | None = None
 
-    async def create(self, **payload: Any) -> AnthropicMessage:
+    async def create(self, **payload: Any) -> Any:
         self.payload = payload
         if self.error is not None:
             raise self.error
+        if payload.get("stream") is True:
+            return _FakeStream(self.stream_events or [])
         assert self.response is not None
         return self.response
+
+
+class _FakeStream:
+    def __init__(self, events: list[Any]) -> None:
+        self._events = events
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for event in self._events:
+            yield event
 
 
 class _FakeModels:
@@ -173,6 +190,44 @@ def test_anthropic_instance_chat_translates_errors() -> None:
             await instance.chat(_request())
 
         assert caught.value.cause is error
+
+    asyncio.run(run())
+
+
+def test_anthropic_instance_streams_chat_chunks() -> None:
+    async def run() -> None:
+        messages = _FakeMessages(
+            stream_events=[
+                SimpleNamespace(
+                    type="content_block_delta",
+                    index=0,
+                    delta=SimpleNamespace(type="text_delta", text="Hel"),
+                ),
+                SimpleNamespace(
+                    type="content_block_delta",
+                    index=0,
+                    delta=SimpleNamespace(type="text_delta", text="lo"),
+                ),
+                SimpleNamespace(
+                    type="message_delta",
+                    delta=SimpleNamespace(stop_reason="end_turn"),
+                    usage=SimpleNamespace(input_tokens=3, output_tokens=4),
+                ),
+            ],
+        )
+        instance = AnthropicProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeAnthropicClient(messages),
+        )
+
+        chunks = [chunk async for chunk in instance.chat_stream(_request())]
+
+        assert messages.payload is not None
+        assert messages.payload["stream"] is True
+        assert messages.payload["model"] == "claude-test"
+        assert [chunk.delta_text for chunk in chunks[:2]] == ["Hel", "lo"]
+        assert chunks[-1].finish_reason == ChatFinishReason.STOP
 
     asyncio.run(run())
 

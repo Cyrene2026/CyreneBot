@@ -35,7 +35,14 @@ const errorModeLabel = (mode: FeedItem['errorMode']) =>
       <template v-else>{{ item.kind === 'user' ? '我' : 'A' }}</template>
     </div>
     <div class="message-body">
-      <div class="message-role">{{ roleLabel(item.kind) }}</div>
+      <div class="message-role">
+        <span>{{ roleLabel(item.kind) }}</span>
+        <span v-if="item.pending" class="stream-status live">流式接收中</span>
+        <span v-else-if="item.streamFallback" class="stream-status fallback">非流式回退</span>
+        <span v-else-if="item.streamChunks" class="stream-status">
+          {{ item.streamChunks }} 段
+        </span>
+      </div>
 
       <!-- 失败详情：留在消息流里，便于排查供应商/模型连通性 -->
       <div v-if="item.kind === 'error'" class="error-card">
@@ -60,6 +67,10 @@ const errorModeLabel = (mode: FeedItem['errorMode']) =>
       <div v-else-if="item.content || item.pending" class="message-content">
         {{ item.content
         }}<span v-if="item.pending" class="stream-caret">▍</span>
+      </div>
+      <div v-if="item.streamStatus" class="stream-detail">
+        {{ item.streamStatus }}
+        <template v-if="item.streamedChars"> · {{ item.streamedChars }} 字</template>
       </div>
 
       <!-- 对话工具调用 -->

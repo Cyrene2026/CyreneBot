@@ -1,11 +1,11 @@
 import asyncio
-from typing import Any
+from typing import Any, AsyncIterator
 
 from google import genai
 from google.genai.types import HttpOptionsDict
 
 from cyreneAI.core.errors.provider import ProviderConfigurationError
-from cyreneAI.core.schema.chat import ChatRequest, ChatResponse
+from cyreneAI.core.schema.chat import ChatRequest, ChatResponse, ChatStreamChunk
 from cyreneAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
 from cyreneAI.core.schema.provider import ProviderConfig, ProviderInfo, ProviderModel
 from cyreneAI.infra.adapters.providers.google_genai.errors import (
@@ -16,6 +16,7 @@ from cyreneAI.infra.adapters.providers.google_genai.mapper import (
     map_google_content_image_generation_response,
     map_google_genai_request,
     map_google_genai_response,
+    map_google_genai_stream_chunk,
     map_google_image_generation_request,
     map_google_image_generation_response,
     should_use_google_generate_images,
@@ -66,6 +67,25 @@ class GoogleGenAIProviderInstance:
                 provider_id=self.config.provider_id,
                 response=response,
             )
+        except Exception as exc:
+            raise_google_genai_error(exc)
+
+    async def chat_stream(
+        self,
+        request: ChatRequest,
+    ) -> AsyncIterator[ChatStreamChunk]:
+        try:
+            payload = map_google_genai_request(request)
+            stream = await self._client.aio.models.generate_content_stream(**payload)
+        except Exception as exc:
+            raise_google_genai_error(exc)
+
+        try:
+            async for chunk in stream:
+                yield map_google_genai_stream_chunk(
+                    provider_id=self.config.provider_id,
+                    chunk=chunk,
+                )
         except Exception as exc:
             raise_google_genai_error(exc)
 

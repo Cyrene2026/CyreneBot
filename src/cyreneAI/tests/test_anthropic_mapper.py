@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from anthropic.types import Message as AnthropicMessage
 
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
@@ -13,6 +15,7 @@ from cyreneAI.core.schema.tool import ToolCall, ToolChoice, ToolDefinition
 from cyreneAI.infra.adapters.providers.anthropic.mapper import (
     map_anthropic_request,
     map_anthropic_response,
+    map_anthropic_stream_event,
 )
 
 
@@ -220,3 +223,64 @@ def test_map_anthropic_response_preserves_tool_only_message() -> None:
     assert response.message.content is None
     assert response.message.tool_calls is not None
     assert response.message.tool_calls[0].id == "toolu-1"
+
+
+def test_map_anthropic_stream_event_maps_text_delta() -> None:
+    event = SimpleNamespace(
+        type="content_block_delta",
+        index=0,
+        delta=SimpleNamespace(type="text_delta", text="Hel"),
+    )
+
+    chunk = map_anthropic_stream_event("provider-1", event)
+
+    assert chunk is not None
+    assert chunk.provider_id == "provider-1"
+    assert chunk.delta_text == "Hel"
+    assert chunk.finish_reason is None
+
+
+def test_map_anthropic_stream_event_maps_tool_call_deltas() -> None:
+    start = SimpleNamespace(
+        type="content_block_start",
+        index=1,
+        content_block=SimpleNamespace(
+            type="tool_use",
+            id="toolu-1",
+            name="lookup",
+            input={},
+        ),
+    )
+    delta = SimpleNamespace(
+        type="content_block_delta",
+        index=1,
+        delta=SimpleNamespace(type="input_json_delta", partial_json='{"key"'),
+    )
+
+    start_chunk = map_anthropic_stream_event("provider-1", start)
+    delta_chunk = map_anthropic_stream_event("provider-1", delta)
+
+    assert start_chunk is not None
+    assert len(start_chunk.tool_call_deltas) == 1
+    assert start_chunk.tool_call_deltas[0].index == 1
+    assert start_chunk.tool_call_deltas[0].id == "toolu-1"
+    assert start_chunk.tool_call_deltas[0].name == "lookup"
+    assert delta_chunk is not None
+    assert delta_chunk.tool_call_deltas[0].arguments == '{"key"'
+
+
+def test_map_anthropic_stream_event_maps_message_delta() -> None:
+    event = SimpleNamespace(
+        type="message_delta",
+        delta=SimpleNamespace(stop_reason="tool_use"),
+        usage=SimpleNamespace(input_tokens=3, output_tokens=4),
+    )
+
+    chunk = map_anthropic_stream_event("provider-1", event)
+
+    assert chunk is not None
+    assert chunk.finish_reason == ChatFinishReason.TOOL_CALLS
+    assert chunk.usage is not None
+    assert chunk.usage.prompt_tokens == 3
+    assert chunk.usage.completion_tokens == 4
+    assert chunk.usage.total_tokens == 7

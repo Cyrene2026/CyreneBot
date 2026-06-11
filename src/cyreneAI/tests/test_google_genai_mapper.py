@@ -15,6 +15,7 @@ from cyreneAI.infra.adapters.providers.google_genai.mapper import (
     map_google_content_image_generation_request,
     map_google_genai_request,
     map_google_genai_response,
+    map_google_genai_stream_chunk,
     should_use_google_generate_images,
 )
 
@@ -228,6 +229,114 @@ def test_map_google_genai_response_preserves_tool_only_message() -> None:
     assert response.message.content is None
     assert response.message.tool_calls is not None
     assert response.message.tool_calls[0].id == "lookup"
+
+
+def test_map_google_genai_stream_chunk_maps_text_delta() -> None:
+    google_response = GenerateContentResponse.model_validate(
+        {
+            "model_version": "gemini-test",
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": "Hel"}],
+                    },
+                }
+            ],
+        }
+    )
+
+    chunk = map_google_genai_stream_chunk("provider-1", google_response)
+
+    assert chunk.provider_id == "provider-1"
+    assert chunk.model == "gemini-test"
+    assert chunk.delta_text == "Hel"
+    assert chunk.finish_reason is None
+
+
+def test_map_google_genai_stream_chunk_maps_reasoning_delta() -> None:
+    google_response = GenerateContentResponse.model_validate(
+        {
+            "model_version": "gemini-test",
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": "thinking", "thought": True}],
+                    },
+                }
+            ],
+        }
+    )
+
+    chunk = map_google_genai_stream_chunk("provider-1", google_response)
+
+    assert chunk.delta_text is None
+    assert chunk.reasoning_delta == "thinking"
+
+
+def test_map_google_genai_stream_chunk_maps_function_call_delta() -> None:
+    google_response = GenerateContentResponse.model_validate(
+        {
+            "model_version": "gemini-test",
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "function_call": {
+                                    "id": "call-1",
+                                    "name": "lookup",
+                                    "args": {"key": "value"},
+                                }
+                            }
+                        ],
+                    },
+                    "finish_reason": "STOP",
+                }
+            ],
+        }
+    )
+
+    chunk = map_google_genai_stream_chunk("provider-1", google_response)
+
+    assert chunk.finish_reason == ChatFinishReason.TOOL_CALLS
+    assert len(chunk.tool_call_deltas) == 1
+    delta = chunk.tool_call_deltas[0]
+    assert delta.id == "call-1"
+    assert delta.name == "lookup"
+    assert delta.arguments == '{"key": "value"}'
+
+
+def test_map_google_genai_stream_chunk_maps_finish_and_usage() -> None:
+    google_response = GenerateContentResponse.model_validate(
+        {
+            "model_version": "gemini-test",
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [],
+                    },
+                    "finish_reason": "MAX_TOKENS",
+                }
+            ],
+            "usage_metadata": {
+                "prompt_token_count": 3,
+                "candidates_token_count": 4,
+                "total_token_count": 7,
+            },
+        }
+    )
+
+    chunk = map_google_genai_stream_chunk("provider-1", google_response)
+
+    assert chunk.finish_reason == ChatFinishReason.LENGTH
+    assert chunk.usage is not None
+    assert chunk.usage.prompt_tokens == 3
+    assert chunk.usage.completion_tokens == 4
+    assert chunk.usage.total_tokens == 7
 
 
 def test_google_image_generation_route_selection() -> None:

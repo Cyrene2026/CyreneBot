@@ -105,10 +105,12 @@ class _FakeModels:
     def __init__(
         self,
         response: GenerateContentResponse | None = None,
+        stream_responses: list[GenerateContentResponse] | None = None,
         models_response: list[Any] | None = None,
         error: Exception | None = None,
     ) -> None:
         self.response = response
+        self.stream_responses = stream_responses
         self.models_response = models_response or [
             type("Model", (), {"name": "models/gemini-test"})()
         ]
@@ -147,9 +149,34 @@ class _FakeModels:
         )
 
 
+class _FakeStream:
+    def __init__(self, responses: list[GenerateContentResponse]) -> None:
+        self._responses = responses
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for response in self._responses:
+            yield response
+
+
+class _FakeAsyncModels:
+    def __init__(self, models: _FakeModels) -> None:
+        self._models = models
+
+    async def generate_content_stream(self, **payload: Any) -> _FakeStream:
+        self._models.payload = payload
+        if self._models.error is not None:
+            raise self._models.error
+        assert self._models.stream_responses is not None
+        return _FakeStream(self._models.stream_responses)
+
+
 class _FakeGoogleClient:
     def __init__(self, models: _FakeModels) -> None:
         self.models = models
+        self.aio = SimpleNamespace(models=_FakeAsyncModels(models))
         self.closed = False
 
     async def close(self) -> None:
@@ -239,6 +266,55 @@ def test_google_genai_instance_chat_maps_payload_and_response() -> None:
 
         await instance.close()
         assert client.closed is True
+
+    asyncio.run(run())
+
+
+def test_google_genai_instance_streams_chat_chunks() -> None:
+    async def run() -> None:
+        models = _FakeModels(
+            stream_responses=[
+                GenerateContentResponse.model_validate(
+                    {
+                        "model_version": "gemini-test",
+                        "candidates": [
+                            {
+                                "content": {
+                                    "role": "model",
+                                    "parts": [{"text": "Hel"}],
+                                },
+                            }
+                        ],
+                    }
+                ),
+                GenerateContentResponse.model_validate(
+                    {
+                        "model_version": "gemini-test",
+                        "candidates": [
+                            {
+                                "content": {
+                                    "role": "model",
+                                    "parts": [{"text": "lo"}],
+                                },
+                                "finish_reason": "STOP",
+                            }
+                        ],
+                    }
+                ),
+            ],
+        )
+        instance = GoogleGenAIProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeGoogleClient(models),
+        )
+
+        chunks = [chunk async for chunk in instance.chat_stream(_request())]
+
+        assert models.payload is not None
+        assert models.payload["model"] == "gemini-test"
+        assert [chunk.delta_text for chunk in chunks] == ["Hel", "lo"]
+        assert chunks[-1].finish_reason == ChatFinishReason.STOP
 
     asyncio.run(run())
 

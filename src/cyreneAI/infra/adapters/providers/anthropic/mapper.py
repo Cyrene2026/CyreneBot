@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
+from cyreneAI.core.schema.chat import (
+    ChatFinishReason,
+    ChatRequest,
+    ChatResponse,
+    ChatStreamChunk,
+    ToolCallDelta,
+)
 from cyreneAI.core.schema.message import (
     ContentPart,
     ContentPartType,
@@ -250,6 +256,85 @@ def map_anthropic_response(provider_id: str, response: Any) -> ChatResponse:
     )
 
 
+def map_anthropic_stream_event(
+    provider_id: str,
+    event: Any,
+) -> ChatStreamChunk | None:
+    event_type = getattr(event, "type", None)
+
+    if event_type == "message_start":
+        message = getattr(event, "message", None)
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            model=getattr(message, "model", None),
+            usage=map_usage(getattr(message, "usage", None)),
+        )
+
+    if event_type == "content_block_start":
+        block = getattr(event, "content_block", None)
+        tool_delta = map_stream_tool_call_start(
+            index=getattr(event, "index", None),
+            block=block,
+        )
+        if tool_delta is None:
+            return None
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            tool_call_deltas=[tool_delta],
+        )
+
+    if event_type == "content_block_delta":
+        delta = getattr(event, "delta", None)
+        delta_type = getattr(delta, "type", None)
+        if delta_type == "text_delta":
+            return ChatStreamChunk(
+                provider_id=provider_id,
+                delta_text=_optional_str(getattr(delta, "text", None)),
+            )
+        if delta_type == "thinking_delta":
+            return ChatStreamChunk(
+                provider_id=provider_id,
+                reasoning_delta=_optional_str(getattr(delta, "thinking", None)),
+            )
+        if delta_type == "input_json_delta":
+            return ChatStreamChunk(
+                provider_id=provider_id,
+                tool_call_deltas=[
+                    ToolCallDelta(
+                        index=_stream_index(getattr(event, "index", None)),
+                        arguments=_optional_str(
+                            getattr(delta, "partial_json", None)
+                        ),
+                    )
+                ],
+            )
+        return None
+
+    if event_type == "message_delta":
+        delta = getattr(event, "delta", None)
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            finish_reason=map_finish_reason(getattr(delta, "stop_reason", None)),
+            usage=map_usage(getattr(event, "usage", None)),
+        )
+
+    return None
+
+
+def map_stream_tool_call_start(
+    *,
+    index: Any,
+    block: Any | None,
+) -> ToolCallDelta | None:
+    if getattr(block, "type", None) != "tool_use":
+        return None
+    return ToolCallDelta(
+        index=_stream_index(index),
+        id=getattr(block, "id", None),
+        name=getattr(block, "name", None),
+    )
+
+
 def map_response_text(content: list[Any]) -> str | None:
     texts: list[str] = []
     for block in content:
@@ -303,3 +388,11 @@ def map_usage(usage: Any | None) -> TokenUsage | None:
 
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _stream_index(value: Any) -> int:
+    return value if isinstance(value, int) else 0

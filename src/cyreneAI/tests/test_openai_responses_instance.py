@@ -8,7 +8,11 @@ from typing import Any
 import pytest
 from openai.types.responses import Response
 
-from cyreneAI.core.errors.provider import ProviderConfigurationError, ProviderError
+from cyreneAI.core.errors.provider import (
+    ProviderConfigurationError,
+    ProviderError,
+    ProviderResponseError,
+)
 from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest
 from cyreneAI.core.schema.image import ImageGenerationRequest
 from cyreneAI.core.schema.message import (
@@ -92,18 +96,34 @@ class _FakeResponses:
     def __init__(
         self,
         response: Response | None = None,
+        stream_events: list[Any] | None = None,
         error: Exception | None = None,
     ) -> None:
         self.response = response
+        self.stream_events = stream_events
         self.error = error
         self.payload: dict[str, Any] | None = None
 
-    async def create(self, **payload: Any) -> Response:
+    async def create(self, **payload: Any) -> Any:
         self.payload = payload
         if self.error is not None:
             raise self.error
+        if payload.get("stream") is True:
+            return _FakeStream(self.stream_events or [])
         assert self.response is not None
         return self.response
+
+
+class _FakeStream:
+    def __init__(self, events: list[Any]) -> None:
+        self._events = events
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for event in self._events:
+            yield event
 
 
 class _FakeModels:
@@ -197,6 +217,69 @@ def test_openai_responses_instance_chat_translates_errors() -> None:
             await instance.chat(_request())
 
         assert caught.value.cause is error
+
+    asyncio.run(run())
+
+
+def test_openai_responses_instance_streams_chat_chunks() -> None:
+    async def run() -> None:
+        responses = _FakeResponses(
+            stream_events=[
+                SimpleNamespace(
+                    type="response.output_text.delta",
+                    delta="Hel",
+                    response=SimpleNamespace(model="gpt-test"),
+                ),
+                SimpleNamespace(
+                    type="response.output_text.delta",
+                    delta="lo",
+                    response=SimpleNamespace(model="gpt-test"),
+                ),
+                SimpleNamespace(
+                    type="response.completed",
+                    response=_response(),
+                ),
+            ],
+        )
+        instance = OpenAIResponsesProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeOpenAIClient(responses),
+        )
+
+        chunks = [chunk async for chunk in instance.chat_stream(_request())]
+
+        assert responses.payload is not None
+        assert responses.payload["stream"] is True
+        assert responses.payload["model"] == "gpt-test"
+        assert [chunk.delta_text for chunk in chunks[:2]] == ["Hel", "lo"]
+        assert chunks[-1].finish_reason == ChatFinishReason.STOP
+
+    asyncio.run(run())
+
+
+def test_openai_responses_instance_stream_translates_error_event() -> None:
+    async def run() -> None:
+        instance = OpenAIResponsesProviderInstance(
+            config=_config(),
+            info=_provider_info(),
+            client=_FakeOpenAIClient(
+                _FakeResponses(
+                    stream_events=[
+                        SimpleNamespace(
+                            type="error",
+                            message="stream failed",
+                            code="bad_stream",
+                        )
+                    ],
+                )
+            ),
+        )
+
+        with pytest.raises(ProviderResponseError) as caught:
+            _ = [chunk async for chunk in instance.chat_stream(_request())]
+
+        assert "stream failed" in str(caught.value)
 
     asyncio.run(run())
 

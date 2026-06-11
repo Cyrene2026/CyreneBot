@@ -6,6 +6,8 @@ from cyreneAI.core.schema.chat import (
     ChatFinishReason,
     ChatRequest,
     ChatResponse,
+    ChatStreamChunk,
+    ToolCallDelta,
 )
 from cyreneAI.core.schema.image import (
     GeneratedImage,
@@ -247,6 +249,81 @@ def map_responses_response(provider_id: str, response: Any) -> ChatResponse:
     )
 
 
+def map_responses_stream_event(
+    provider_id: str,
+    event: Any,
+) -> ChatStreamChunk | None:
+    event_type = getattr(event, "type", None)
+    response = getattr(event, "response", None)
+
+    if event_type == "response.output_text.delta":
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            model=getattr(response, "model", None),
+            delta_text=_optional_str(getattr(event, "delta", None)),
+        )
+
+    if event_type in {
+        "response.reasoning_text.delta",
+        "response.reasoning_summary_text.delta",
+    }:
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            model=getattr(response, "model", None),
+            reasoning_delta=_optional_str(getattr(event, "delta", None)),
+        )
+
+    if event_type in {
+        "response.output_item.added",
+        "response.output_item.done",
+    }:
+        tool_delta = map_stream_tool_call_delta(
+            item=getattr(event, "item", None),
+            output_index=getattr(event, "output_index", None),
+        )
+        if tool_delta is None:
+            return None
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            model=getattr(response, "model", None),
+            tool_call_deltas=[tool_delta],
+        )
+
+    if event_type in {"response.completed", "response.incomplete"}:
+        if response is None:
+            return None
+        output = cast(list[Any], getattr(response, "output", None) or [])
+        tool_calls = [
+            tool_call
+            for tool_call in (map_tool_call(item) for item in output)
+            if tool_call is not None
+        ]
+        return ChatStreamChunk(
+            provider_id=provider_id,
+            model=getattr(response, "model", None),
+            finish_reason=map_finish_reason(response, tool_calls),
+            usage=map_usage(getattr(response, "usage", None)),
+        )
+
+    return None
+
+
+def map_stream_tool_call_delta(
+    *,
+    item: Any | None,
+    output_index: Any,
+) -> ToolCallDelta | None:
+    if getattr(item, "type", None) != "function_call":
+        return None
+
+    return ToolCallDelta(
+        index=output_index if isinstance(output_index, int) else 0,
+        id=getattr(item, "call_id", None) or getattr(item, "id", None) or None,
+        name=getattr(item, "name", None),
+        arguments=_optional_str(getattr(item, "arguments", None)),
+    )
+
+
 def map_output_text(output: list[Any]) -> str | None:
     texts: list[str] = []
     for item in output:
@@ -302,6 +379,10 @@ def map_usage(usage: Any | None) -> TokenUsage | None:
 
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def map_image_generation_request(request: ImageGenerationRequest) -> dict[str, Any]:

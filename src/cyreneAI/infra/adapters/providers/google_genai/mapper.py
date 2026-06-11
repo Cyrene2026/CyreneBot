@@ -4,7 +4,13 @@ import base64
 import json
 from typing import Any, cast
 
-from cyreneAI.core.schema.chat import ChatFinishReason, ChatRequest, ChatResponse
+from cyreneAI.core.schema.chat import (
+    ChatFinishReason,
+    ChatRequest,
+    ChatResponse,
+    ChatStreamChunk,
+    ToolCallDelta,
+)
 from cyreneAI.core.schema.image import (
     GeneratedImage,
     ImageGenerationRequest,
@@ -245,6 +251,63 @@ def map_google_genai_response(provider_id: str, response: Any) -> ChatResponse:
     )
 
 
+def map_google_genai_stream_chunk(
+    provider_id: str,
+    chunk: Any,
+) -> ChatStreamChunk:
+    candidates = cast(list[Any], getattr(chunk, "candidates", None) or [])
+    candidate = candidates[0] if candidates else None
+    parts: list[Any] = []
+    if candidate is not None and getattr(candidate, "content", None) is not None:
+        parts = cast(list[Any], getattr(candidate.content, "parts", None) or [])
+
+    tool_call_deltas = [
+        delta
+        for delta in (
+            map_stream_tool_call_delta(part, index)
+            for index, part in enumerate(parts)
+        )
+        if delta is not None
+    ]
+    raw_finish_reason = (
+        getattr(candidate, "finish_reason", None) if candidate is not None else None
+    )
+    return ChatStreamChunk(
+        provider_id=provider_id,
+        model=getattr(chunk, "model_version", None),
+        delta_text=map_response_text(
+            [part for part in parts if not _is_thought_part(part)]
+        ),
+        reasoning_delta=map_response_text(
+            [part for part in parts if _is_thought_part(part)]
+        ),
+        tool_call_deltas=tool_call_deltas,
+        finish_reason=(
+            map_finish_reason(candidate, _tool_calls_from_deltas(tool_call_deltas))
+            if candidate is not None and raw_finish_reason is not None
+            else None
+        ),
+        usage=map_usage(getattr(chunk, "usage_metadata", None)),
+    )
+
+
+def map_stream_tool_call_delta(part: Any, index: int) -> ToolCallDelta | None:
+    function_call = getattr(part, "function_call", None)
+    if function_call is None:
+        return None
+    return ToolCallDelta(
+        index=index,
+        id=getattr(function_call, "id", None)
+        or getattr(function_call, "name", None)
+        or None,
+        name=getattr(function_call, "name", None),
+        arguments=map_tool_arguments(
+            getattr(function_call, "args", None)
+            or getattr(function_call, "partial_args", None)
+        ),
+    )
+
+
 def map_response_text(parts: list[Any]) -> str | None:
     texts: list[str] = []
     for part in parts:
@@ -254,6 +317,21 @@ def map_response_text(parts: list[Any]) -> str | None:
     if not texts:
         return None
     return "\n".join(texts)
+
+
+def _is_thought_part(part: Any) -> bool:
+    return getattr(part, "thought", None) is True
+
+
+def _tool_calls_from_deltas(deltas: list[ToolCallDelta]) -> list[ToolCall]:
+    return [
+        ToolCall(
+            id=delta.id or f"call-{delta.index}",
+            name=delta.name or "",
+            arguments=delta.arguments,
+        )
+        for delta in deltas
+    ]
 
 
 def map_tool_call(part: Any) -> ToolCall | None:

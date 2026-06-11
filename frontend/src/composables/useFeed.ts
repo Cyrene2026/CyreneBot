@@ -48,6 +48,10 @@ export interface FeedItem {
   retry?: PendingRequest
   // 进行中标记（用于流式占位/loading）
   pending?: boolean
+  streamChunks?: number
+  streamedChars?: number
+  streamFallback?: boolean
+  streamStatus?: string
 }
 
 const composerMode = ref<ComposerMode>('chat')
@@ -227,6 +231,9 @@ async function executeStream(body: Record<string, unknown>) {
     toolCalls: [],
     toolResults: [],
     pending: true,
+    streamChunks: 0,
+    streamedChars: 0,
+    streamStatus: '正在连接流式通道',
   }
   feed.value.push(placeholder)
   // 拿到 feed 里的真实对象引用，后续直接原地修改（深层响应式会刷新视图）。
@@ -238,15 +245,22 @@ async function executeStream(body: Record<string, unknown>) {
       onDelta: (text) => {
         received = true
         item.content = (item.content || '') + text
+        item.streamChunks = (item.streamChunks || 0) + 1
+        item.streamedChars = (item.streamedChars || 0) + text.length
+        item.streamStatus = '正在接收模型输出'
       },
       onToolCall: (calls) => {
         item.toolCalls = [...(item.toolCalls || []), ...calls]
+        item.streamStatus = '模型请求工具调用'
       },
       onToolResult: (results) => {
         item.toolResults = [...(item.toolResults || []), ...results]
+        item.streamStatus = '工具结果已返回'
       },
       onDone: (event) => {
         item.pending = false
+        item.streamFallback = event.metadata?.fallback === true
+        item.streamStatus = item.streamFallback ? '非流式回退完成' : '流式完成'
         if (event.finish_reason) {
           chatResult.value = {
             response: {
@@ -263,6 +277,7 @@ async function executeStream(body: Record<string, unknown>) {
       },
     })
     item.pending = false
+    item.streamStatus = item.streamStatus || '流式完成'
     if (!received && !(item.toolResults && item.toolResults.length)) {
       item.content = item.content || '(无内容返回)'
     }
