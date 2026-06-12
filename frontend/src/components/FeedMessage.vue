@@ -3,6 +3,7 @@ import { Bot, Image as ImageIcon, RotateCcw, TriangleAlert, X } from '@lucide/vu
 
 import { useFeed, type FeedItem } from '../composables/useFeed'
 import { contentToText, imageSrc } from '../utils/format'
+import { renderMarkdown } from '../utils/markdown'
 
 defineProps<{ item: FeedItem }>()
 
@@ -64,9 +65,12 @@ const errorModeLabel = (mode: FeedItem['errorMode']) =>
       </div>
 
       <!-- 文本内容（user / assistant / agent 最终回复） -->
-      <div v-else-if="item.content || item.pending" class="message-content">
-        {{ item.content
-        }}<span v-if="item.pending" class="stream-caret">▍</span>
+      <div
+        v-else-if="item.content || item.pending"
+        class="message-content"
+        :class="{ streaming: item.pending }"
+      >
+        <div class="markdown-body" v-html="renderMarkdown(item.content)"></div>
       </div>
       <div v-if="item.streamStatus" class="stream-detail">
         {{ item.streamStatus }}
@@ -104,7 +108,10 @@ const errorModeLabel = (mode: FeedItem['errorMode']) =>
           </div>
           <div v-if="step.response?.message?.content" class="agent-thought">
             <div class="agent-block-label">思考 / 说明</div>
-            <div>{{ contentToText(step.response.message.content) }}</div>
+            <div
+              class="markdown-body"
+              v-html="renderMarkdown(contentToText(step.response.message.content))"
+            ></div>
           </div>
           <div v-if="step.tool_calls && step.tool_calls.length" class="agent-block">
             <div class="agent-block-label">工具调用</div>
