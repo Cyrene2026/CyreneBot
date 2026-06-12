@@ -858,13 +858,23 @@ def test_server_lists_providers_and_models() -> None:
     assert models.json()["models"][0]["model_id"] == "runtime-model"
 
 
-def test_server_reports_provider_model_listing_errors() -> None:
+def test_server_reports_provider_model_listing_errors(caplog) -> None:
     client = _client(provider=FailingModelListServerProvider())
 
-    response = client.get("/providers/provider-1/models")
+    with caplog.at_level(logging.ERROR, logger="cyreneAI.server.providers"):
+        response = client.get("/providers/provider-1/models")
 
     assert response.status_code == 422
     assert response.json() == {"detail": "model listing failed"}
+    record = next(
+        record
+        for record in caplog.records
+        if record.name == "cyreneAI.server.providers"
+    )
+    assert record.getMessage() == "Provider model listing failed"
+    assert record.provider_id == "provider-1"
+    assert record.error_type == "ProviderError"
+    assert record.error == "model listing failed"
 
 
 def test_server_manages_provider_admin_lifecycle(tmp_path) -> None:

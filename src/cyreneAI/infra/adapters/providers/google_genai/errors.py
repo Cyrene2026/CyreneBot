@@ -1,5 +1,7 @@
 from typing import NoReturn
 
+import httpx
+import requests
 from google.genai import errors as genai_errors
 
 from cyreneAI.core.errors.provider import (
@@ -13,8 +15,17 @@ from cyreneAI.core.errors.provider import (
 
 
 def translate_google_genai_error(exc: Exception) -> ProviderError:
-    if isinstance(exc, TimeoutError):
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException, requests.Timeout)):
         return ProviderRequestTimeoutError(message=str(exc), cause=exc)
+    if isinstance(
+        exc,
+        (
+            ConnectionError,
+            httpx.NetworkError,
+            requests.ConnectionError,
+        ),
+    ):
+        return ProviderUnavailableError(message=str(exc), cause=exc)
 
     status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     if status_code in {401, 403}:

@@ -9,15 +9,17 @@ class CyreneAIError(Exception):
     def __init__(
         self,
         message: str,
+        detail: str | None = None,
         *,
         cause: Exception | None = None,
     ) -> None:
         super().__init__(message)
         self.cause = cause
+        self.detail = detail
 
     @property
     def error_info(self) -> str:
-        return self.__class__.__name__
+        return f"{self.__class__.__name__}"
 
 
 class ConfigurationError(CyreneAIError):

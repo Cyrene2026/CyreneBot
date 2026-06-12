@@ -17,6 +17,7 @@ from cyreneAI.core.errors.chat import ChatStreamError
 from cyreneAI.core.schema.chat import ChatStreamEvent, ChatStreamEventType
 from cyreneAI.server.dependencies import get_runtime, require_admin
 from cyreneAI.server.errors import raise_http_error
+from cyreneAI.server.logging_config import bind_log_context
 from cyreneAI.server.schemas import ChatRequestBody
 
 router = APIRouter(
@@ -55,15 +56,8 @@ async def chat(
             _build_application_request(body)
         )
     except CyreneAIError as exc:
-        logger.exception(
-            "Chat request failed: %s",
-            str(exc),
-            extra={
-                "provider_id": body.provider_id,
-                "model": body.model,
-                "session_id": body.metadata.get("session_id"),
-            },
-        )
+        with bind_log_context(**_chat_error_log_context(body, exc)):
+            logger.exception("Chat request failed")
         raise_http_error(exc)
     return result.model_dump(mode="json")
 
@@ -86,29 +80,15 @@ async def chat_stream(
             async for event in orchestrator.chat_stream(request):
                 yield _sse(event)
         except CyreneAIError as exc:
-            logger.exception(
-                "Chat stream failed: %s",
-                str(exc),
-                extra={
-                    "provider_id": body.provider_id,
-                    "model": body.model,
-                    "session_id": body.metadata.get("session_id"),
-                },
-            )
+            with bind_log_context(**_chat_error_log_context(body, exc)):
+                logger.exception("Chat stream failed")
             yield _sse(
                 ChatStreamEvent(type=ChatStreamEventType.ERROR, detail=str(exc))
             )
         except Exception as exc:  # noqa: BLE001 - 兜底，避免流中断后前端无反馈
             error = ChatStreamError(str(exc), cause=exc)
-            logger.exception(
-                "Chat stream failed unexpectedly: %s",
-                str(error),
-                extra={
-                    "provider_id": body.provider_id,
-                    "model": body.model,
-                    "session_id": body.metadata.get("session_id"),
-                },
-            )
+            with bind_log_context(**_chat_error_log_context(body, error)):
+                logger.exception("Chat stream failed unexpectedly")
             yield _sse(
                 ChatStreamEvent(type=ChatStreamEventType.ERROR, detail=str(error))
             )
@@ -121,3 +101,21 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _chat_error_log_context(
+    body: ChatRequestBody,
+    exc: CyreneAIError,
+) -> dict[str, object]:
+    context: dict[str, object] = {
+        "provider_id": body.provider_id,
+        "model": body.model,
+        "session_id": body.metadata.get("session_id"),
+        "error_type": exc.__class__.__name__,
+        "error": str(exc),
+    }
+    cause = exc.cause or exc.__cause__
+    if cause is not None:
+        context["cause_type"] = cause.__class__.__name__
+        context["cause"] = str(cause)
+    return context

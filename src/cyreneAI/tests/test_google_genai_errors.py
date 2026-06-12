@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import httpx
 import pytest
+import requests
 from google.genai import errors as genai_errors
 
 from cyreneAI.core.errors.provider import (
@@ -50,6 +52,23 @@ def test_translate_google_genai_timeout_error() -> None:
     translated = translate_google_genai_error(exc)
 
     assert isinstance(translated, ProviderRequestTimeoutError)
+    assert translated.cause is exc
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ConnectionError("connection failed"),
+        httpx.ConnectError("connection failed"),
+        requests.ConnectionError("connection failed"),
+    ],
+)
+def test_translate_google_genai_connection_error(
+    exc: Exception,
+) -> None:
+    translated = translate_google_genai_error(exc)
+
+    assert isinstance(translated, ProviderUnavailableError)
     assert translated.cause is exc
 
 

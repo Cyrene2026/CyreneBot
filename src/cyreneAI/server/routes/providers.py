@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,7 @@ from cyreneAI.core.schema.provider import (
 )
 from cyreneAI.server.dependencies import get_runtime, require_admin
 from cyreneAI.server.errors import raise_http_error
+from cyreneAI.server.logging_config import bind_log_context
 from cyreneAI.server.provider_admin import ProviderAdminService
 
 router = APIRouter(
@@ -24,6 +26,8 @@ router = APIRouter(
     tags=["providers"],
     dependencies=[Depends(require_admin)],
 )
+
+logger = logging.getLogger("cyreneAI.server.providers")
 
 
 def get_provider_admin_service(
@@ -160,5 +164,24 @@ async def list_provider_models(
     try:
         models = await runtime.provider_manager.list_models(provider_id)
     except CyreneAIError as exc:
+        context = _provider_error_log_context(provider_id, exc)
+        with bind_log_context(**context):
+            logger.exception("Provider model listing failed", extra=context)
         raise_http_error(exc)
     return {"models": models}
+
+
+def _provider_error_log_context(
+    provider_id: str,
+    exc: CyreneAIError,
+) -> dict[str, object]:
+    context: dict[str, object] = {
+        "provider_id": provider_id,
+        "error_type": exc.__class__.__name__,
+        "error": str(exc),
+    }
+    cause = exc.cause or exc.__cause__
+    if cause is not None:
+        context["cause_type"] = cause.__class__.__name__
+        context["cause"] = str(cause)
+    return context
