@@ -4,10 +4,13 @@ import asyncio
 import importlib
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from cyreneAI.api.cli import init_plugin_project
@@ -19,6 +22,7 @@ from cyreneAI.core.context.manager import ContextManager
 from cyreneAI.core.errors.context import ContextNotFoundError
 from cyreneAI.core.errors.provider import ProviderError
 from cyreneAI.core.plugin.manager import PluginManager
+from cyreneAI.core.plugin.plugin_protocol import PluginTaskExecutorProtocol
 from cyreneAI.core.plugin.registry import PluginRegistry
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
@@ -338,6 +342,10 @@ def _client(
     )
 
 
+def _client_app(client: TestClient) -> FastAPI:
+    return cast(FastAPI, client.app)
+
+
 def _agent_history_client(*snapshots: ContextSnapshot) -> TestClient:
     runtime = CyreneAIRuntime(
         provider_manager=ProviderManager(ProviderFactory()),
@@ -504,13 +512,27 @@ class FakePluginTaskScheduler:
             )
         ]
 
+    def namespace(self, plugin_id: str) -> FakePluginTaskNamespace:
+        return FakePluginTaskNamespace(self)
+
+    def register_task(
+        self,
+        plugin_id: str,
+        definition: PluginTaskDefinition,
+        executor: PluginTaskExecutorProtocol,
+    ) -> None:
+        return None
+
+    async def start(self) -> None:
+        pass
+
     async def list_tasks(
         self,
         *,
-        plugin_id=None,
-        task_name=None,
-        statuses=None,
-    ):
+        plugin_id: str | None = None,
+        task_name: str | None = None,
+        statuses: list[PluginTaskStatus] | None = None,
+    ) -> list[PluginScheduledTask]:
         tasks = list(self.tasks)
         if plugin_id is not None:
             tasks = [task for task in tasks if task.plugin_id == plugin_id]
@@ -531,6 +553,27 @@ class FakePluginTaskScheduler:
 
     async def shutdown(self) -> None:
         pass
+
+
+class FakePluginTaskNamespace:
+    def __init__(self, scheduler: FakePluginTaskScheduler) -> None:
+        self.scheduler = scheduler
+
+    async def schedule_once(
+        self,
+        task_name: str,
+        *,
+        delay_seconds: float,
+        payload: dict[str, Any] | None = None,
+        key: str | None = None,
+    ) -> str:
+        return f"{task_name}:scheduled"
+
+    async def cancel(self, task_id: str) -> None:
+        await self.scheduler.cancel_task(task_id)
+
+    async def cancel_key(self, key: str) -> int:
+        return 0
 
 
 def _plugin_task_client() -> TestClient:
@@ -562,6 +605,19 @@ class FakePluginStorageNamespace:
 
     async def list_keys(self) -> list[str]:
         return sorted(self.values)
+
+    async def update(
+        self,
+        key: str,
+        updater: Callable[[Any], Any | Awaitable[Any]],
+        default: Any = None,
+    ) -> Any:
+        value = self.values.get(key, default)
+        updated = updater(value)
+        if isinstance(updated, Awaitable):
+            updated = await updated
+        self.values[key] = updated
+        return updated
 
 
 class FakePluginStorage:
@@ -809,9 +865,9 @@ def test_server_readiness_reports_lifespan_runtime_ready() -> None:
 
         assert response.status_code == 200
         assert response.json() == {"status": "ready"}
-        assert client.app.state.runtime_ready is True
+        assert _client_app(client).state.runtime_ready is True
 
-    assert client.app.state.runtime_ready is False
+    assert _client_app(client).state.runtime_ready is False
 
 
 def test_server_readiness_waits_for_runtime_builder_lifespan() -> None:
@@ -841,9 +897,9 @@ def test_server_readiness_waits_for_runtime_builder_lifespan() -> None:
 
         assert ready_response.status_code == 200
         assert ready_response.json() == {"status": "ready"}
-        assert ready_client.app.state.runtime is not None
+        assert _client_app(ready_client).state.runtime is not None
 
-    assert ready_client.app.state.runtime_ready is False
+    assert _client_app(ready_client).state.runtime_ready is False
 
 
 def test_server_lists_providers_and_models() -> None:
