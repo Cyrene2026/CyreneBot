@@ -7,7 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from dotenv import load_dotenv
+import yaml
 
 from cyreneAI.core.schema.application import BotAdminConfig
 from cyreneAI.core.schema.config import ConfigProvider, RuntimeConfig
@@ -29,8 +29,6 @@ _SECRET_CONFIG_FIELD_NAMES = {
 
 
 def build_server_settings_from_env() -> ServerSettings:
-    load_dotenv()
-
     return ServerSettings(
         admin_username=os.getenv("CYRENEAI_ADMIN_USERNAME"),
         admin_password=os.getenv("CYRENEAI_ADMIN_PASSWORD"),
@@ -45,44 +43,30 @@ def build_server_settings_from_env() -> ServerSettings:
 
 
 def build_telegram_bot_token_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("TELEGRAM_BOT_TOKEN") or _env_str("BOT_TOKEN")
 
 
 def build_qq_bot_token_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("QQ_BOT_ACCESS_TOKEN") or _env_str("QQ_BOT_TOKEN")
 
 
 def build_qq_bot_app_id_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("QQ_BOT_APP_ID") or _env_str("QQ_BOT_APPID")
 
 
 def build_qq_bot_app_secret_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("QQ_BOT_APP_SECRET") or _env_str("QQ_BOT_SECRET")
 
 
 def build_qq_bot_base_url_from_env() -> str:
-    load_dotenv()
-
     return _env_str("QQ_BOT_BASE_URL") or "https://api.sgroup.qq.com"
 
 
 def build_qq_bot_token_url_from_env() -> str:
-    load_dotenv()
-
     return _env_str("QQ_BOT_TOKEN_URL") or ("https://bots.qq.com/app/getAppAccessToken")
 
 
 def build_qq_webhook_provider_id_from_env() -> str | None:
-    load_dotenv()
-
     qq_provider_id = _env_str("QQ_BOT_PROVIDER_ID")
     if qq_provider_id:
         return qq_provider_id
@@ -97,8 +81,6 @@ def build_qq_webhook_provider_id_from_env() -> str | None:
 
 
 def build_qq_webhook_model_from_env() -> str | None:
-    load_dotenv()
-
     return (
         _env_str("QQ_BOT_MODEL")
         or _env_str("OPENAI_COMPATIBLE_MODEL")
@@ -108,26 +90,18 @@ def build_qq_webhook_model_from_env() -> str | None:
 
 
 def build_qq_webhook_secret_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("QQ_BOT_WEBHOOK_SECRET") or build_qq_bot_app_secret_from_env()
 
 
 def build_qq_websocket_enabled_from_env() -> bool:
-    load_dotenv()
-
     return (_env_str("QQ_BOT_MODE") or "").lower() in {"websocket", "ws"}
 
 
 def build_telegram_webhook_secret_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("TELEGRAM_SECRET_TOKEN") or _env_str("TELEGRAM_BOT_SECRET_TOKEN")
 
 
 def build_telegram_webhook_provider_id_from_env() -> str | None:
-    load_dotenv()
-
     telegram_provider_id = _env_str("TELEGRAM_BOT_PROVIDER_ID")
     if telegram_provider_id:
         return telegram_provider_id
@@ -142,8 +116,6 @@ def build_telegram_webhook_provider_id_from_env() -> str | None:
 
 
 def build_telegram_webhook_model_from_env() -> str | None:
-    load_dotenv()
-
     return (
         _env_str("TELEGRAM_BOT_MODEL")
         or _env_str("OPENAI_COMPATIBLE_MODEL")
@@ -153,26 +125,18 @@ def build_telegram_webhook_model_from_env() -> str | None:
 
 
 def build_telegram_polling_enabled_from_env() -> bool:
-    load_dotenv()
-
     return (_env_str("TELEGRAM_BOT_MODE") or "").lower() == "polling"
 
 
 def build_telegram_polling_interval_seconds_from_env() -> float:
-    load_dotenv()
-
     return float(os.getenv("TELEGRAM_BOT_POLL_INTERVAL_SECONDS", "1"))
 
 
 def build_telegram_polling_timeout_seconds_from_env() -> int:
-    load_dotenv()
-
     return int(os.getenv("TELEGRAM_BOT_POLL_TIMEOUT_SECONDS", "30"))
 
 
 def build_telegram_polling_limit_from_env() -> int | None:
-    load_dotenv()
-
     raw = _env_str("TELEGRAM_BOT_POLL_LIMIT")
     if raw is None:
         return None
@@ -180,14 +144,10 @@ def build_telegram_polling_limit_from_env() -> int | None:
 
 
 def build_bot_polling_state_database_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_BOT_POLLING_STATE_DATABASE_PATH")
 
 
 def build_bot_admin_config_from_env() -> BotAdminConfig | None:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_BOT_ADMIN_USER_IDS")
     if raw is None:
         return None
@@ -199,26 +159,18 @@ def build_bot_admin_config_from_env() -> BotAdminConfig | None:
 
 
 def build_context_database_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_CONTEXT_DATABASE_PATH") or "data/context.db"
 
 
 def build_vector_database_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_VECTOR_DATABASE_PATH") or "data/vector.db"
 
 
 def build_provider_config_store_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_PROVIDER_CONFIG_STORE_PATH") or "data/providers.json"
 
 
 def build_tool_sandbox_mode_from_env() -> Literal["in_process", "subprocess"] | None:
-    load_dotenv()
-
     mode = _env_str("CYRENEAI_TOOL_SANDBOX_MODE")
     if mode is None:
         return None
@@ -228,8 +180,6 @@ def build_tool_sandbox_mode_from_env() -> Literal["in_process", "subprocess"] | 
 
 
 def build_tool_sandbox_commands_from_env() -> dict[str, list[str]] | None:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_TOOL_SANDBOX_COMMANDS_JSON")
     if raw is None:
         return None
@@ -258,8 +208,6 @@ def build_tool_sandbox_commands_from_env() -> dict[str, list[str]] | None:
 
 
 def build_tool_sandbox_timeout_seconds_from_env() -> float | None:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_TOOL_SANDBOX_TIMEOUT_SECONDS")
     if raw is None:
         return None
@@ -267,14 +215,10 @@ def build_tool_sandbox_timeout_seconds_from_env() -> float | None:
 
 
 def build_controlled_shell_enabled_from_env() -> bool:
-    load_dotenv()
-
     return _env_bool("CYRENEAI_CONTROLLED_SHELL_ENABLED", default=False)
 
 
 def build_shell_command_policy_from_env() -> ShellCommandPolicy | None:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_SHELL_COMMAND_POLICY_JSON")
     if raw is None:
         return None
@@ -290,14 +234,10 @@ def build_shell_command_policy_from_env() -> ShellCommandPolicy | None:
 
 
 def build_shell_cwd_root_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_SHELL_CWD_ROOT_PATH")
 
 
 def build_shell_timeout_seconds_from_env() -> float:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_SHELL_TIMEOUT_SECONDS")
     if raw is None:
         return 10.0
@@ -305,8 +245,6 @@ def build_shell_timeout_seconds_from_env() -> float:
 
 
 def build_mcp_stdio_servers_from_env() -> list[MCPStdioServerConfig]:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_MCP_STDIO_SERVERS_JSON")
     if raw is None:
         return []
@@ -324,26 +262,18 @@ def build_mcp_stdio_servers_from_env() -> list[MCPStdioServerConfig]:
 
 
 def build_web_search_url_template_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_WEB_SEARCH_URL_TEMPLATE")
 
 
 def build_web_search_api_key_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_WEB_SEARCH_API_KEY")
 
 
 def build_web_search_api_key_header_from_env() -> str:
-    load_dotenv()
-
     return _env_str("CYRENEAI_WEB_SEARCH_API_KEY_HEADER") or "Authorization"
 
 
 def build_web_search_timeout_seconds_from_env() -> float:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_WEB_SEARCH_TIMEOUT_SECONDS")
     if raw is None:
         return 10.0
@@ -351,8 +281,6 @@ def build_web_search_timeout_seconds_from_env() -> float:
 
 
 def build_plugin_paths_from_env() -> list[str]:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_PLUGIN_PATH")
     if raw is None:
         return []
@@ -361,28 +289,20 @@ def build_plugin_paths_from_env() -> list[str]:
 
 
 def build_plugin_storage_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_PLUGIN_STORAGE_PATH")
 
 
 def build_plugin_python_environment_root_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_PLUGIN_PYTHON_ENVIRONMENT_ROOT_PATH") or (
         "data/plugin_venvs"
     )
 
 
 def build_plugin_python_dependency_auto_install_from_env() -> bool:
-    load_dotenv()
-
     return _env_bool("CYRENEAI_PLUGIN_PYTHON_AUTO_INSTALL", default=True)
 
 
 def build_plugin_python_dependency_install_timeout_seconds_from_env() -> float:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_PLUGIN_PYTHON_INSTALL_TIMEOUT_SECONDS")
     if raw is None:
         return 300.0
@@ -390,14 +310,10 @@ def build_plugin_python_dependency_install_timeout_seconds_from_env() -> float:
 
 
 def build_plugin_task_database_path_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_PLUGIN_TASK_DATABASE_PATH")
 
 
 def build_plugin_task_max_concurrent_tasks_from_env() -> int:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_PLUGIN_TASK_MAX_CONCURRENT_TASKS")
     if raw is None:
         return 10
@@ -405,14 +321,10 @@ def build_plugin_task_max_concurrent_tasks_from_env() -> int:
 
 
 def build_plugin_task_lease_owner_from_env() -> str | None:
-    load_dotenv()
-
     return _env_str("CYRENEAI_PLUGIN_TASK_LEASE_OWNER")
 
 
 def build_plugin_task_lease_seconds_from_env() -> float:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_PLUGIN_TASK_LEASE_SECONDS")
     if raw is None:
         return 60.0
@@ -420,8 +332,6 @@ def build_plugin_task_lease_seconds_from_env() -> float:
 
 
 def build_disabled_plugin_ids_from_env() -> list[str]:
-    load_dotenv()
-
     raw = _env_str("CYRENEAI_DISABLED_PLUGINS")
     if raw is None:
         return []
@@ -435,15 +345,13 @@ def build_provider_configs_from_file(path: str | Path) -> list[ProviderConfig]:
 
 def load_runtime_config_file(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
-    raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    raw = _load_runtime_config_mapping(config_path)
     if _contains_secret_config_value(raw):
         _validate_secret_config_file_permissions(config_path)
     return RuntimeConfig.model_validate(raw)
 
 
 def build_provider_configs_from_env() -> list[ProviderConfig]:
-    load_dotenv()
-
     configs_by_id: dict[str, ProviderConfig] = {}
     config_path = _env_str("CYRENEAI_CONFIG")
     if config_path is not None:
@@ -561,6 +469,23 @@ def _build_provider_config_from_config_provider(
         enabled=provider_config.enabled,
         metadata=metadata,
     )
+
+
+def _load_runtime_config_mapping(path: Path) -> dict[str, object]:
+    text = path.read_text(encoding="utf-8")
+    suffix = path.suffix.lower()
+    if suffix == ".toml":
+        raw = tomllib.loads(text)
+    elif suffix in {".yaml", ".yml"}:
+        raw = yaml.safe_load(text) or {}
+    else:
+        raise ValueError(
+            "configuration file must use .yaml, .yml, or .toml extension"
+        )
+
+    if not isinstance(raw, dict):
+        raise ValueError("configuration file must contain a mapping at the root")
+    return cast(dict[str, object], raw)
 
 
 def _contains_secret_config_value(value: object, key: str | None = None) -> bool:

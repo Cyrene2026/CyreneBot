@@ -99,7 +99,10 @@ class PluginAdminService:
             installed_sources=manager.list_plugin_sources(),
         )
 
-        definitions = load_filesystem_plugins(self._runtime, [body.path])
+        try:
+            definitions = load_filesystem_plugins(self._runtime, [body.path])
+        except ValueError as exc:
+            raise PluginStateError(str(exc)) from exc
         return PluginInstallReport(
             installed=definitions,
             sources=[

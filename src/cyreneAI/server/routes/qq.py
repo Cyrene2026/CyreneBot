@@ -3,19 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 
 from cyreneAI.application.channels.webhook_handler import (
     ApplicationChannelWebhookRequest,
     ChannelWebhookHandler,
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import CyreneAIError
+from cyreneAI.core.errors.base import CyreneAIError, RequestError
 from cyreneAI.core.schema.application import (
     BotMessageResponseMode,
     BotMessageTriggerMode,
 )
 from cyreneAI.server.dependencies import get_runtime
+from cyreneAI.server.errors import raise_http_error
 
 QQ_VALIDATION_OPCODE = 13
 
@@ -56,10 +57,7 @@ async def handle_qq_webhook(
     runtime_provider_id = provider_id or request.app.state.qq_provider_id
     runtime_model = model or request.app.state.qq_model
     if not runtime_provider_id or not runtime_model:
-        raise HTTPException(
-            status_code=400,
-            detail="QQ webhook provider_id and model are required",
-        )
+        raise_http_error(RequestError("QQ webhook provider_id and model are required"))
 
     try:
         result = await ChannelWebhookHandler(runtime).handle(
@@ -85,7 +83,7 @@ async def handle_qq_webhook(
             )
         )
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")
 
 
@@ -99,24 +97,19 @@ def _build_qq_validation_response(
     secret: str | None,
 ) -> dict[str, str]:
     if not secret:
-        raise HTTPException(
-            status_code=400,
-            detail="QQ webhook secret is required for validation",
-        )
+        raise_http_error(RequestError("QQ webhook secret is required for validation"))
 
     data = payload.get("d")
     if not isinstance(data, dict):
-        raise HTTPException(
-            status_code=400,
-            detail="QQ webhook validation payload is missing d",
-        )
+        raise_http_error(RequestError("QQ webhook validation payload is missing d"))
 
     plain_token = str(data.get("plain_token") or "")
     event_ts = str(data.get("event_ts") or "")
     if not plain_token or not event_ts:
-        raise HTTPException(
-            status_code=400,
-            detail="QQ webhook validation payload is missing plain_token or event_ts",
+        raise_http_error(
+            RequestError(
+                "QQ webhook validation payload is missing plain_token or event_ts"
+            )
         )
 
     seed = _repeat_seed_to_32_bytes(secret)

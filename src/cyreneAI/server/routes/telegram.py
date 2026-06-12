@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 
 from cyreneAI.application.channels.webhook_handler import (
     ApplicationChannelWebhookRequest,
     ChannelWebhookHandler,
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import CyreneAIError
+from cyreneAI.core.errors.base import AuthorizationError, CyreneAIError, RequestError
 from cyreneAI.core.schema.application import (
     BotMessageResponseMode,
     BotMessageTriggerMode,
 )
 from cyreneAI.server.dependencies import get_runtime
+from cyreneAI.server.errors import raise_http_error
 
 TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token"
 
@@ -54,9 +55,8 @@ async def handle_telegram_webhook(
     runtime_provider_id = provider_id or request.app.state.telegram_provider_id
     runtime_model = model or request.app.state.telegram_model
     if not runtime_provider_id or not runtime_model:
-        raise HTTPException(
-            status_code=400,
-            detail="Telegram webhook provider_id and model are required",
+        raise_http_error(
+            RequestError("Telegram webhook provider_id and model are required")
         )
 
     try:
@@ -82,7 +82,7 @@ async def handle_telegram_webhook(
             )
         )
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")
 
 
@@ -96,7 +96,6 @@ def _verify_telegram_secret_token(
 
     actual_secret = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER)
     if actual_secret != expected_secret:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid Telegram webhook secret token",
+        raise_http_error(
+            AuthorizationError("Invalid Telegram webhook secret token")
         )

@@ -1325,6 +1325,46 @@ enabled = false
     assert configs[1].enabled is False
 
 
+def test_server_builds_provider_configs_from_yaml_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_LOCAL_API_KEY", "openai-env-key")
+    config_path = tmp_path / "cyrene.yaml"
+    config_path.write_text(
+        """
+providers:
+  openai-main:
+    type: openai_responses
+    api_key_env: OPENAI_LOCAL_API_KEY
+    base_url: https://openai.example/v1
+    model: gpt-test
+    timeout_seconds: 12.5
+    metadata:
+      owner: local
+  anthropic-alt:
+    provider_type: anthropic
+    api_key: anthropic-file-key
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+    config_path.chmod(0o600)
+
+    configs = build_provider_configs_from_file(config_path)
+
+    assert len(configs) == 2
+    assert configs[0] == ProviderConfig(
+        provider_id="openai-main",
+        provider_type=ProviderType.OPENAI_RESPONSES,
+        api_key="openai-env-key",
+        base_url="https://openai.example/v1",
+        timeout=timedelta(seconds=12.5),
+        metadata={"owner": "local", "model": "gpt-test"},
+    )
+    assert configs[1].provider_id == "anthropic-alt"
+    assert configs[1].provider_type == ProviderType.ANTHROPIC
+    assert configs[1].api_key == "anthropic-file-key"
+    assert configs[1].enabled is False
+
+
 def test_server_provider_config_file_requires_private_permissions(tmp_path) -> None:
     config_path = tmp_path / "cyrene.toml"
     config_path.write_text(

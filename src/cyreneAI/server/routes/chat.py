@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from cyreneAI.application.chat.orchestrator import (
@@ -12,8 +12,10 @@ from cyreneAI.application.chat.orchestrator import (
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.errors.base import CyreneAIError
+from cyreneAI.core.errors.chat import ChatStreamError
 from cyreneAI.core.schema.chat import ChatStreamEvent, ChatStreamEventType
 from cyreneAI.server.dependencies import get_runtime, require_admin
+from cyreneAI.server.errors import raise_http_error
 from cyreneAI.server.schemas import ChatRequestBody
 
 router = APIRouter(
@@ -50,7 +52,7 @@ async def chat(
             _build_application_request(body)
         )
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")
 
 
@@ -76,8 +78,9 @@ async def chat_stream(
                 ChatStreamEvent(type=ChatStreamEventType.ERROR, detail=str(exc))
             )
         except Exception as exc:  # noqa: BLE001 - 兜底，避免流中断后前端无反馈
+            error = ChatStreamError(str(exc), cause=exc)
             yield _sse(
-                ChatStreamEvent(type=ChatStreamEventType.ERROR, detail=str(exc))
+                ChatStreamEvent(type=ChatStreamEventType.ERROR, detail=str(error))
             )
 
     return StreamingResponse(

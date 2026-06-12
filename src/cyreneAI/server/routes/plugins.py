@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-from typing import NoReturn
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import ConflictError
-from cyreneAI.core.errors.plugin import (
-    PluginError,
-    PluginInputError,
-    PluginNotFoundError,
-    PluginStateError,
-)
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.schema.plugin import (
     PluginCommandDefinition,
     PluginDefinition,
@@ -35,6 +27,7 @@ from cyreneAI.core.schema.server import (
     PluginValidationReport,
 )
 from cyreneAI.server.dependencies import get_runtime, require_admin
+from cyreneAI.server.errors import raise_http_error
 from cyreneAI.server.plugin_admin import PluginAdminService
 
 router = APIRouter(
@@ -56,8 +49,8 @@ async def list_plugins(
 ) -> dict[str, list[PluginDefinition]]:
     try:
         return {"plugins": service.list_plugins()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/commands", response_model=dict[str, list[PluginCommandDefinition]])
@@ -66,8 +59,8 @@ async def list_plugin_commands(
 ) -> dict[str, list[PluginCommandDefinition]]:
     try:
         return {"commands": service.list_commands()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/events", response_model=dict[str, list[PluginEventDefinition]])
@@ -76,8 +69,8 @@ async def list_plugin_events(
 ) -> dict[str, list[PluginEventDefinition]]:
     try:
         return {"events": service.list_events()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/tasks", response_model=dict[str, list[PluginTaskDefinition]])
@@ -86,8 +79,8 @@ async def list_plugin_tasks(
 ) -> dict[str, list[PluginTaskDefinition]]:
     try:
         return {"tasks": service.list_tasks()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/middlewares", response_model=dict[str, list[PluginMiddlewareDefinition]])
@@ -96,8 +89,8 @@ async def list_plugin_middlewares(
 ) -> dict[str, list[PluginMiddlewareDefinition]]:
     try:
         return {"middlewares": service.list_middlewares()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/statuses", response_model=dict[str, list[PluginStatusReport]])
@@ -106,8 +99,8 @@ async def list_plugin_statuses(
 ) -> dict[str, list[PluginStatusReport]]:
     try:
         return {"statuses": service.list_statuses()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/sources", response_model=dict[str, list[PluginSourceInfo]])
@@ -116,8 +109,8 @@ async def list_plugin_sources(
 ) -> dict[str, list[PluginSourceInfo]]:
     try:
         return {"sources": service.list_sources()}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -148,8 +141,8 @@ async def install_plugin_path(
 ) -> PluginInstallReport:
     try:
         return service.install_path(body)
-    except (PluginError, ConflictError, ValueError) as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/tasks/instances", response_model=PluginTaskInstancesReport)
@@ -165,8 +158,8 @@ async def list_plugin_task_instances(
             task_name=task_name,
             status=status,
         )
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.post(
@@ -179,8 +172,8 @@ async def cancel_plugin_task(
 ) -> PluginOperationResult:
     try:
         return await service.cancel_task(task_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.post(
@@ -193,8 +186,8 @@ async def retry_plugin_task(
 ) -> PluginOperationResult:
     try:
         return await service.retry_task(task_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/{plugin_id}", response_model=PluginDefinition)
@@ -204,8 +197,8 @@ async def get_plugin(
 ) -> PluginDefinition:
     try:
         return service.get_plugin(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/{plugin_id}/inspect", response_model=PluginInspectionReport)
@@ -215,8 +208,8 @@ async def inspect_plugin(
 ) -> PluginInspectionReport:
     try:
         return service.inspect_plugin(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.post("/{plugin_id}/disable", response_model=PluginDefinition)
@@ -226,8 +219,8 @@ async def disable_plugin(
 ) -> PluginDefinition:
     try:
         return service.disable_plugin(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.post("/{plugin_id}/enable", response_model=PluginDefinition)
@@ -237,8 +230,8 @@ async def enable_plugin(
 ) -> PluginDefinition:
     try:
         return service.enable_plugin(plugin_id)
-    except (PluginError, ConflictError) as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.post("/{plugin_id}/reload", response_model=PluginOperationResult)
@@ -248,8 +241,8 @@ async def reload_plugin(
 ) -> PluginOperationResult:
     try:
         return service.reload_plugin(plugin_id)
-    except (PluginError, ConflictError) as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -262,8 +255,8 @@ async def list_single_plugin_commands(
 ) -> dict[str, list[PluginCommandDefinition]]:
     try:
         return {"commands": service.list_plugin_commands(plugin_id)}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -276,8 +269,8 @@ async def list_single_plugin_events(
 ) -> dict[str, list[PluginEventDefinition]]:
     try:
         return {"events": service.list_plugin_events(plugin_id)}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -290,8 +283,8 @@ async def list_single_plugin_tasks(
 ) -> dict[str, list[PluginTaskDefinition]]:
     try:
         return {"tasks": service.list_plugin_tasks(plugin_id)}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -304,8 +297,8 @@ async def list_single_plugin_middlewares(
 ) -> dict[str, list[PluginMiddlewareDefinition]]:
     try:
         return {"middlewares": service.list_plugin_middlewares(plugin_id)}
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get("/{plugin_id}/status", response_model=PluginStatusReport)
@@ -315,8 +308,8 @@ async def get_plugin_status(
 ) -> PluginStatusReport:
     try:
         return service.get_plugin_status(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -329,8 +322,8 @@ async def list_plugin_permission_audit(
 ) -> PluginPermissionAuditReport:
     try:
         return service.list_permission_audit(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -343,8 +336,8 @@ async def list_plugin_storage_keys(
 ) -> PluginStorageKeysReport:
     try:
         return await service.list_storage_keys(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.get(
@@ -358,8 +351,8 @@ async def get_plugin_storage_value(
 ) -> PluginStorageValueReport:
     try:
         return await service.get_storage_value(plugin_id, key)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.delete(
@@ -373,8 +366,8 @@ async def delete_plugin_storage_value(
 ) -> PluginOperationResult:
     try:
         return await service.delete_storage_value(plugin_id, key)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
+    except CyreneAIError as exc:
+        raise_http_error(exc)
 
 
 @router.delete(
@@ -387,19 +380,5 @@ async def clear_plugin_storage(
 ) -> PluginOperationResult:
     try:
         return await service.clear_storage(plugin_id)
-    except PluginError as exc:
-        _raise_plugin_http_exception(exc)
-
-
-def _raise_plugin_http_exception(exc: Exception) -> NoReturn:
-    if isinstance(exc, PluginNotFoundError):
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if isinstance(exc, PluginInputError):
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if isinstance(exc, PluginStateError) and "not configured" in str(exc):
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if isinstance(exc, PluginStateError | ConflictError):
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if isinstance(exc, ValueError):
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CyreneAIError as exc:
+        raise_http_error(exc)

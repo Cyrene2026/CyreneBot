@@ -99,6 +99,24 @@ def test_server_builds_request_logging_settings_from_env(monkeypatch) -> None:
     assert build_request_id_header_from_env() == "X-Trace-ID"
 
 
+def test_server_logging_config_does_not_auto_load_dotenv(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "CYRENEAI_LOG_LEVEL=DEBUG\nCYRENEAI_REQUEST_ID_HEADER=X-Dotenv-ID\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CYRENEAI_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("CYRENEAI_REQUEST_ID_HEADER", raising=False)
+
+    config = build_logging_config_from_env()
+
+    assert config["root"]["level"] == "INFO"
+    assert build_request_id_header_from_env() == "X-Request-ID"
+
+
 def test_server_logging_config_rejects_invalid_values() -> None:
     with pytest.raises(ValueError):
         build_logging_config(level="loud")

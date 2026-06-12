@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import StateError, UnsupportedError
+from cyreneAI.core.errors.base import StateError, UnsupportedError, ValidationError
 from cyreneAI.core.provider.provider_protocol import EmbeddingProviderProtocol
 from cyreneAI.core.schema.application import (
     ApplicationRetrievalRequest,
@@ -96,7 +96,7 @@ def _merge_collection_filter(
         return merged
     existing_collection_id = merged.get("collection_id")
     if existing_collection_id is not None and existing_collection_id != collection_id:
-        raise ValueError("filters.collection_id conflicts with collection_id")
+        raise ValidationError("filters.collection_id conflicts with collection_id")
     merged["collection_id"] = collection_id
     return merged
 

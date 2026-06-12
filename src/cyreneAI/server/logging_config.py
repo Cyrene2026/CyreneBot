@@ -11,8 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from dotenv import load_dotenv
-
 LogFormat = Literal["text", "json"]
 
 _LOG_CONTEXT: ContextVar[dict[str, object] | None] = ContextVar(
@@ -159,8 +157,6 @@ def get_log_context() -> dict[str, object]:
 
 
 def build_logging_config_from_env() -> dict[str, Any]:
-    load_dotenv()
-
     level = _env_log_level("CYRENEAI_LOG_LEVEL", default="INFO")
     log_format = _env_log_format("CYRENEAI_LOG_FORMAT", default="text")
     access_enabled = _env_bool("CYRENEAI_LOG_ACCESS_ENABLED", default=True)
@@ -187,14 +183,10 @@ def build_logging_config_from_env() -> dict[str, Any]:
 
 
 def build_request_logging_enabled_from_env() -> bool:
-    load_dotenv()
-
     return _env_bool("CYRENEAI_LOG_REQUESTS_ENABLED", default=True)
 
 
 def build_request_id_header_from_env() -> str:
-    load_dotenv()
-
     return _env_str("CYRENEAI_REQUEST_ID_HEADER") or _DEFAULT_REQUEST_ID_HEADER
 
 

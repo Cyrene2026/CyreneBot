@@ -6,10 +6,14 @@ import hmac
 import secrets
 import time
 
-from fastapi import HTTPException, Request, Response, status
+from fastapi import Request, Response
 from fastapi.security import HTTPBasicCredentials
 
+from cyreneAI.core.errors.base import AuthorizationError, ConfigurationError
 from cyreneAI.server.config import ServerSettings
+from cyreneAI.server.errors import raise_http_error
+
+_BASIC_AUTH_HEADERS = {"WWW-Authenticate": "Basic"}
 
 
 def verify_admin_password(
@@ -21,18 +25,14 @@ def verify_admin_password(
     if not settings.auth_enabled:
         return
     if not settings.admin_username or not settings.admin_password:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin auth is not configured",
-        )
+        raise_http_error(ConfigurationError("Admin auth is not configured"))
 
     username_matches = secrets.compare_digest(username, settings.admin_username)
     password_matches = secrets.compare_digest(password, settings.admin_password)
     if not username_matches or not password_matches:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin credentials",
-            headers={"WWW-Authenticate": "Basic"},
+        raise_http_error(
+            AuthorizationError("Invalid admin credentials"),
+            headers=_BASIC_AUTH_HEADERS,
         )
 
 
@@ -43,10 +43,9 @@ def verify_admin_credentials(
     if not settings.auth_enabled:
         return
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Admin credentials are required",
-            headers={"WWW-Authenticate": "Basic"},
+        raise_http_error(
+            AuthorizationError("Admin credentials are required"),
+            headers=_BASIC_AUTH_HEADERS,
         )
     verify_admin_password(
         username=credentials.username,
@@ -77,10 +76,7 @@ def set_admin_session_cookie(response: Response, settings: ServerSettings) -> No
     if not settings.auth_enabled:
         return
     if not settings.admin_username:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin auth is not configured",
-        )
+        raise_http_error(ConfigurationError("Admin auth is not configured"))
     expires_at = int(time.time()) + settings.session_ttl_seconds
     token = _encode_session_token(settings.admin_username, expires_at, settings)
     response.set_cookie(

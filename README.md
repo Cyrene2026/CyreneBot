@@ -19,6 +19,60 @@ skill and tool orchestration
 OpenAI-compatible / OpenAI Responses / Anthropic / Google GenAI adapters
 ```
 
+## 运行时配置
+
+服务启动时支持从独立配置文件加载 provider 配置，适合把运行时代码和部署配置隔离：
+
+```bash
+python start.py --config /etc/cyrene/config.yaml
+```
+
+也可以用环境变量指定同一路径：
+
+```bash
+CYRENEAI_CONFIG=/etc/cyrene/config.yaml python start.py
+```
+
+配置模板见 `config.yaml.example`。当前支持 `.yaml`、`.yml` 和 `.toml`。YAML 示例：
+
+```yaml
+providers:
+  openai-main:
+    type: openai_responses
+    enabled: true
+    api_key_env: OPENAI_RESPONSES_API_KEY
+    model: gpt-5-mini
+    timeout_seconds: 60
+
+  compatible-local:
+    type: openai_compatible
+    enabled: true
+    api_key: local-secret
+    base_url: https://api.example.com/v1
+    model: example-chat-model
+```
+
+`api_key_env` 会从进程环境变量读取密钥；如果直接在配置文件写 `api_key`，该文件必须收紧权限。Linux/macOS 下，包含 `api_key`、`password`、`secret_key`、`token` 等敏感字段的配置文件不能被其他用户读取，也不能 group-writable。
+
+推荐的生产布局：
+
+```text
+/opt/cyrene/CyreneBot        代码目录
+/etc/cyrene/config.yaml      运行时配置
+/var/lib/cyrene              运行时数据
+```
+
+权限示例：
+
+```bash
+sudo mkdir -p /etc/cyrene
+sudo chown root:cyrene /etc/cyrene
+sudo chmod 750 /etc/cyrene
+sudo install -m 640 -o root -g cyrene config.yaml /etc/cyrene/config.yaml
+```
+
+环境变量模板见 `env.example`。服务不会自动读取项目目录里的 `.env`；请通过 systemd `EnvironmentFile=`、Docker/Compose `env_file`、shell `export` 或部署平台注入环境变量。管理后台用户名、密码和 session secret 仍然只走环境变量；如果启用认证但缺少用户名或密码，服务不会挂载 `/console` 前端入口。
+
 ## 架构边界
 
 CyreneBot 的核心约束是让变化只发生在合适的层：

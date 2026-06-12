@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, NoReturn, cast
+from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import (
-    ConflictError,
-    CyreneAIError,
-    NotFoundError,
-    StateError,
-)
-from cyreneAI.core.errors.provider import ProviderError
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.schema.provider import (
     ProviderAdminStatus,
     ProviderConfig,
@@ -22,6 +16,7 @@ from cyreneAI.core.schema.provider import (
     ProviderOperationResult,
 )
 from cyreneAI.server.dependencies import get_runtime, require_admin
+from cyreneAI.server.errors import raise_http_error
 from cyreneAI.server.provider_admin import ProviderAdminService
 
 router = APIRouter(
@@ -56,7 +51,7 @@ async def list_provider_catalog(
     try:
         return {"providers": service.list_catalog()}
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.get("/configs", response_model=dict[str, list[ProviderConfigSummary]])
@@ -66,7 +61,7 @@ async def list_provider_configs(
     try:
         return {"configs": await service.list_configs()}
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.get("/statuses", response_model=dict[str, list[ProviderAdminStatus]])
@@ -76,7 +71,7 @@ async def list_provider_statuses(
     try:
         return {"providers": await service.list_statuses()}
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.get("/{provider_id}", response_model=ProviderAdminStatus)
@@ -87,7 +82,7 @@ async def inspect_provider(
     try:
         return await service.inspect(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.put("/{provider_id}/config", response_model=ProviderAdminStatus)
@@ -99,7 +94,7 @@ async def upsert_provider_config(
     try:
         return await service.upsert_config(provider_id, body)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.delete("/{provider_id}/config", response_model=ProviderOperationResult)
@@ -110,7 +105,7 @@ async def delete_provider_config(
     try:
         return await service.delete_config(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.post("/{provider_id}/start", response_model=ProviderOperationResult)
@@ -121,7 +116,7 @@ async def start_provider(
     try:
         return await service.start(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.post("/{provider_id}/stop", response_model=ProviderOperationResult)
@@ -132,7 +127,7 @@ async def stop_provider(
     try:
         return await service.stop(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.post("/{provider_id}/reload", response_model=ProviderOperationResult)
@@ -143,7 +138,7 @@ async def reload_provider(
     try:
         return await service.reload(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.post("/{provider_id}/check", response_model=ProviderConnectionCheckResult)
@@ -154,7 +149,7 @@ async def check_provider(
     try:
         return await service.check(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
 
 
 @router.get("/{provider_id}/models", response_model=dict[str, list[ProviderModel]])
@@ -165,19 +160,5 @@ async def list_provider_models(
     try:
         models = await runtime.provider_manager.list_models(provider_id)
     except CyreneAIError as exc:
-        _raise_provider_http_exception(exc)
+        raise_http_error(exc)
     return {"models": models}
-
-
-def _raise_provider_http_exception(exc: Exception) -> NoReturn:
-    if isinstance(exc, NotFoundError):
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if isinstance(exc, ConflictError):
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if isinstance(exc, StateError) and "not configured" in str(exc):
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if isinstance(exc, StateError):
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if isinstance(exc, ProviderError):
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    raise HTTPException(status_code=400, detail=str(exc)) from exc

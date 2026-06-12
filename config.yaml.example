@@ -1,0 +1,51 @@
+# CyreneBot runtime configuration example.
+#
+# Copy this file to a private runtime path, for example:
+#   /etc/cyrene/config.yaml
+#
+# If this file contains api_key, token, password, or other secret fields, keep
+# it private:
+#   chmod 600 /etc/cyrene/config.yaml
+# or:
+#   chown root:cyrene /etc/cyrene/config.yaml
+#   chmod 640 /etc/cyrene/config.yaml
+#
+# Start with:
+#   python start.py --config /etc/cyrene/config.yaml
+
+providers:
+  openai-main:
+    type: openai_responses
+    enabled: true
+    api_key_env: OPENAI_RESPONSES_API_KEY
+    # api_key: sk-...
+    base_url: null
+    model: gpt-5-mini
+    timeout_seconds: 60
+    metadata:
+      purpose: primary-chat
+
+  openai-compatible-local:
+    type: openai_compatible
+    enabled: false
+    api_key_env: OPENAI_COMPATIBLE_API_KEY
+    # api_key: local-secret
+    base_url: https://api.example.com/v1
+    model: example-chat-model
+    timeout_seconds: 60
+    metadata:
+      purpose: compatible-chat
+
+  anthropic-main:
+    type: anthropic
+    enabled: false
+    api_key_env: ANTHROPIC_API_KEY
+    model: claude-example
+    timeout_seconds: 60
+
+  google-main:
+    type: google
+    enabled: false
+    api_key_env: GOOGLE_GENAI_API_KEY
+    model: gemini-example
+    timeout_seconds: 60

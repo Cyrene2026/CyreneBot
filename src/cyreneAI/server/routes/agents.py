@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from cyreneAI.application.agent.history import (
     DEFAULT_AGENT_RUN_HISTORY_LIMIT,
@@ -12,8 +12,9 @@ from cyreneAI.application.agent.orchestrator import (
 )
 from cyreneAI.application.agent.request_builder import build_agent_run_request
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import CyreneAIError, NotFoundError, StateError
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.server.dependencies import get_runtime, require_admin
+from cyreneAI.server.errors import raise_http_error
 from cyreneAI.server.schemas import AgentRunRequestBody
 
 router = APIRouter(
@@ -38,10 +39,8 @@ async def list_agent_runs(
             session_id,
             limit=limit,
         )
-    except StateError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")
 
 
@@ -52,12 +51,8 @@ async def get_agent_run(
 ) -> dict:
     try:
         result = await AgentRunHistoryReader(runtime).get_run(snapshot_id)
-    except StateError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")
 
 
@@ -94,5 +89,5 @@ async def run_agent(
             )
         )
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")

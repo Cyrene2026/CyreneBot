@@ -228,6 +228,24 @@ def test_application_does_not_import_infra_or_server() -> None:
     assert violations == []
 
 
+def test_server_does_not_import_infra_or_adapters() -> None:
+    violations = []
+    forbidden_prefixes = {
+        "cyreneAI.infra",
+        "cyreneAI.adapters",
+    }
+
+    for path in _python_files(SERVER_DIR):
+        for module in _imported_modules(path):
+            if any(
+                module == prefix or module.startswith(f"{prefix}.")
+                for prefix in forbidden_prefixes
+            ):
+                violations.append((_relative(path), module))
+
+    assert violations == []
+
+
 def test_server_does_not_import_plugin_sdk_api() -> None:
     violations = []
     forbidden_prefix = "cyreneAI.api"

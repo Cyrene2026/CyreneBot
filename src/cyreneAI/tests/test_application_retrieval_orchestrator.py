@@ -11,7 +11,7 @@ from cyreneAI.application.knowledge.retrieval_orchestrator import (
 )
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.context.builder import ContextWindowBuilder
-from cyreneAI.core.errors.base import StateError, UnsupportedError
+from cyreneAI.core.errors.base import StateError, UnsupportedError, ValidationError
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.embedding import (
@@ -161,7 +161,7 @@ def test_retrieval_orchestrator_rejects_conflicting_collection_filter() -> None:
     async def run() -> None:
         runtime = await _build_runtime(FakeEmbeddingProvider())
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             await RetrievalOrchestrator(runtime).retrieve(
                 ApplicationRetrievalRequest(
                     provider_id="provider-1",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from cyreneAI.application.generation.image_orchestrator import (
     ApplicationImageGenerationRequest,
@@ -9,6 +9,7 @@ from cyreneAI.application.generation.image_orchestrator import (
 from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.server.dependencies import get_runtime, require_admin
+from cyreneAI.server.errors import raise_http_error
 from cyreneAI.server.schemas import ImageGenerationRequestBody
 
 router = APIRouter(
@@ -37,5 +38,5 @@ async def generate_image(
             )
         )
     except CyreneAIError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_http_error(exc)
     return result.model_dump(mode="json")

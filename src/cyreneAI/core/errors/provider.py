@@ -4,6 +4,7 @@ from cyreneAI.core.errors.base import (
     AuthorizationError,
     ConfigurationError,
     CyreneAIError,
+    NotFoundError,
     RateLimitError,
     RequestError,
     RequestTimeoutError,
@@ -20,7 +21,7 @@ class ProviderError(CyreneAIError):
     pass
 
 
-class ProviderNotFoundError(ProviderError):
+class ProviderNotFoundError(ProviderError, NotFoundError):
     """
     当请求的Provider不存在时引发此异常
     """

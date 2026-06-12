@@ -18,6 +18,7 @@ from cyreneAI.core.bot.session_manager import BotSessionManager
 from cyreneAI.core.context.builder import ContextWindowBuilder
 from cyreneAI.core.context.context_protocol import ContextBuilderProtocol
 from cyreneAI.core.context.manager import ContextManager
+from cyreneAI.core.errors.base import StateError
 from cyreneAI.core.plugin.manager import PluginManager
 from cyreneAI.core.plugin.plugin_protocol import (
     PluginAssetsProtocol,
@@ -100,7 +101,7 @@ async def build_cyrene_ai_runtime(
     runtime_plugin_registry = plugin_registry or PluginRegistry()
     runtime_plugin_manager = plugin_manager or PluginManager(runtime_plugin_registry)
     if plugin_task_scheduler is not None and plugin_task_store is not None:
-        raise ValueError(
+        raise StateError(
             "plugin_task_scheduler and plugin_task_store cannot both be set"
         )
     runtime_plugin_task_scheduler = plugin_task_scheduler

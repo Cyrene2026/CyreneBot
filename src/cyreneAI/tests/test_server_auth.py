@@ -183,3 +183,26 @@ def test_server_settings_reads_admin_auth_from_env(monkeypatch) -> None:
     assert settings.session_secret == "session-secret"
     assert settings.session_cookie_name == "custom_session"
     assert settings.session_ttl_seconds == 60
+
+
+def test_server_settings_do_not_auto_load_dotenv(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "CYRENEAI_ADMIN_USERNAME=dotenv-admin",
+                "CYRENEAI_ADMIN_PASSWORD=dotenv-secret",
+                "CYRENEAI_AUTH_ENABLED=false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CYRENEAI_ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("CYRENEAI_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("CYRENEAI_AUTH_ENABLED", raising=False)
+
+    settings = build_server_settings_from_env()
+
+    assert settings.admin_username is None
+    assert settings.admin_password is None
+    assert settings.auth_enabled is True
