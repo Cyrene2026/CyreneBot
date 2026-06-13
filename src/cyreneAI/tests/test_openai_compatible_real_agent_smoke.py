@@ -34,7 +34,7 @@ from cyreneAI.server.config import ServerSettings
 _SESSION_ID = "real-agent-smoke"
 _SKILL_NAME = "agent_smoke_skill"
 _MEMORY_NAMESPACE = "real-agent-smoke"
-_SKIPPABLE_HTTP_STATUSES = {400, 422, 502, 503, 504}
+_SKIPPABLE_HTTP_STATUSES = {400, 401, 403, 422, 429, 502, 503, 504}
 
 
 def _skip(reason: str) -> None:
