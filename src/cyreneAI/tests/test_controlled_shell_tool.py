@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from cyreneAI.core.errors.tool import ToolExecutionError, ToolInputError, ToolPolicyError
+from cyreneAI.core.errors.tool import (
+    ToolExecutionError,
+    ToolInputError,
+    ToolPolicyError,
+)
 from cyreneAI.core.schema.tool import (
     ShellCommandDecision,
     ShellCommandPolicy,

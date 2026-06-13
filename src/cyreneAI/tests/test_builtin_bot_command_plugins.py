@@ -33,9 +33,9 @@ from cyreneAI.core.schema.message import (
     MessageRole,
 )
 from cyreneAI.core.schema.plugin import (
-    PluginCommandDefinition,
     PluginCommandArgumentDefinition,
     PluginCommandArgumentKind,
+    PluginCommandDefinition,
     PluginCommandRequest,
     PluginCommandResult,
     PluginDefinition,

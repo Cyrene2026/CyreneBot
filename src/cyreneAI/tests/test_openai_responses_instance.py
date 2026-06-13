@@ -390,7 +390,9 @@ def test_openai_responses_instance_stream_translates_failed_response_events() ->
     asyncio.run(run())
 
 
-def test_openai_responses_instance_stream_error_event_uses_object_fallback_message() -> None:
+def test_openai_responses_instance_stream_error_event_uses_object_fallback_message() -> (
+    None
+):
     async def run() -> None:
         error_event = SimpleNamespace(type="error", message=None, code="bad_stream")
         instance = OpenAIResponsesProviderInstance(

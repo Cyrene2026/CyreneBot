@@ -395,7 +395,9 @@ def test_plugin_runtime_context_allows_declared_permission() -> None:
     asyncio.run(run())
 
 
-def test_plugin_runtime_context_can_skip_permission_audit_without_plugin_manager() -> None:
+def test_plugin_runtime_context_can_skip_permission_audit_without_plugin_manager() -> (
+    None
+):
     async def run() -> None:
         plugin = _HelloPlugin()
         runtime = await build_cyrene_ai_runtime(

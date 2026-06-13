@@ -146,9 +146,7 @@ def test_qq_bot_websocket_builds_client_callbacks() -> None:
         await client.on_group_at_message_create(
             SimpleNamespace(id="g", content="group")
         )
-        await client.on_direct_message_create(
-            SimpleNamespace(id="d", content="direct")
-        )
+        await client.on_direct_message_create(SimpleNamespace(id="d", content="direct"))
         await client.on_c2c_message_create(SimpleNamespace(id="c", content="c2c"))
 
     asyncio.run(run())

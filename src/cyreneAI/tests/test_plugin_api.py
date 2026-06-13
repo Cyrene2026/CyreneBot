@@ -1938,7 +1938,9 @@ def _command_request(
             args=args,
             args_text=args_text,
         ),
-        event=_event(raw_text or f"/{command_name}" + (f" {args_text}" if args else "")),
+        event=_event(
+            raw_text or f"/{command_name}" + (f" {args_text}" if args else "")
+        ),
     )
 
 
@@ -2127,7 +2129,9 @@ def test_cyrene_bot_command_executor_reports_invalid_explicit_flag_value() -> No
         executor = _setup_command_executor(plugin)
 
         with pytest.raises(PluginInputError) as exc_info:
-            await executor.execute(_command_request("search", "hello", "--verbose=maybe"))
+            await executor.execute(
+                _command_request("search", "hello", "--verbose=maybe")
+            )
 
         assert "参数 verbose 应为 bool，收到 'maybe'" in str(exc_info.value)
         assert "用法: /search <query...> [--verbose]" in str(exc_info.value)
@@ -2161,7 +2165,9 @@ def test_cyrene_bot_command_executor_uses_default_for_optional_rest_argument() -
     asyncio.run(run())
 
 
-def test_cyrene_bot_command_decorator_rejects_empty_choice_and_invalid_rest_marker() -> None:
+def test_cyrene_bot_command_decorator_rejects_empty_choice_and_invalid_rest_marker() -> (
+    None
+):
     with pytest.raises(TypeError, match=r"Choice\[\.\.\.\] requires"):
         Choice[()]
 

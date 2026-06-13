@@ -133,7 +133,9 @@ def test_python_code_interpreter_kills_timed_out_process(monkeypatch) -> None:
 
     process = FakeProcess()
 
-    async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> FakeProcess:
+    async def fake_create_subprocess_exec(
+        *args: object, **kwargs: object
+    ) -> FakeProcess:
         return process
 
     async def run() -> None:

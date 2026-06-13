@@ -60,7 +60,9 @@ def _event_request() -> PluginEventRequest:
 def _middleware_request() -> PluginMiddlewareRequest:
     return PluginMiddlewareRequest(
         route=PluginMiddlewareDefinition(middleware_type=PluginMiddlewareType.LLM),
-        chat_request=ChatRequest(provider_id="provider-1", model="model-1", messages=[]),
+        chat_request=ChatRequest(
+            provider_id="provider-1", model="model-1", messages=[]
+        ),
     )
 
 
@@ -132,7 +134,9 @@ async def test_event_executor_wraps_errors_and_rejects_bad_results() -> None:
     with pytest.raises(PluginExecutionError) as bad_exc_info:
         await bad_executor.execute(_event_request())
 
-    assert str(bad_exc_info.value) == "插件事件 message 必须返回 PluginEventResult 或 None"
+    assert (
+        str(bad_exc_info.value) == "插件事件 message 必须返回 PluginEventResult 或 None"
+    )
 
     none_executor = _EventHandlerExecutor(lambda: None, runtime_context=object())
     assert await none_executor.execute(_event_request()) == PluginEventResult()
@@ -242,15 +246,22 @@ async def test_tool_executor_rejects_bad_typed_arguments(
     message: str,
 ) -> None:
     if "string" in message:
+
         def typed_handler(value: str) -> str:
             return value
+
     elif "integer" in message:
+
         def typed_handler(value: int) -> int:
             return value
+
     elif "number" in message:
+
         def typed_handler(value: float) -> float:
             return value
+
     else:
+
         def typed_handler(value: bool) -> bool:
             return value
 

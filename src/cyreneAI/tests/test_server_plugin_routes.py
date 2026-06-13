@@ -114,9 +114,7 @@ _PluginRouteCall = Callable[[_FailingPluginAdminService], Awaitable[Any]]
         lambda service: plugin_routes.list_plugin_middlewares(service=service),
         lambda service: plugin_routes.list_plugin_statuses(service=service),
         lambda service: plugin_routes.list_plugin_sources(service=service),
-        lambda service: plugin_routes.list_plugin_runtime_capabilities(
-            service=service
-        ),
+        lambda service: plugin_routes.list_plugin_runtime_capabilities(service=service),
         lambda service: plugin_routes.validate_plugin_path(
             PluginPathRequestBody(path="/plugins/demo"),
             service=service,

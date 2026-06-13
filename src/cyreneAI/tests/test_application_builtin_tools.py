@@ -5,11 +5,10 @@ import json
 
 import pytest
 
-from cyreneAI.bootstrap import build_cyrene_ai_runtime
-from cyreneAI.application.tools import builtin
+from cyreneAI.application.tools import builtin, todo
 from cyreneAI.application.tools.builtin import register_core_builtin_tools
-from cyreneAI.application.tools import todo
 from cyreneAI.application.tools.todo import register_todo_tools
+from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.core.errors.tool import ToolExecutionError, ToolInputError
 from cyreneAI.core.schema.tool import ToolCall
 from cyreneAI.core.tool.manager import ToolManager
@@ -373,7 +372,10 @@ def test_text_search_covers_regex_and_validation_errors() -> None:
 
         invalid_calls = [
             ({"text": "x", "query": "[", "regex": True}, "valid regular expression"),
-            ({"text": "x", "query": "x", "regex": "yes"}, "arguments.regex has invalid type"),
+            (
+                {"text": "x", "query": "x", "regex": "yes"},
+                "arguments.regex has invalid type",
+            ),
             (
                 {"text": "x", "query": "x", "case_sensitive": "yes"},
                 "arguments.case_sensitive has invalid type",
@@ -422,9 +424,7 @@ def test_todo_tools_cover_filters_and_validation_errors() -> None:
             )
         )
         first_id = json.loads(first.content or "{}")["todo"]["todo_id"]
-        second = await manager.execute(
-            _tool_call("create_todo", {"title": "Second"})
-        )
+        second = await manager.execute(_tool_call("create_todo", {"title": "Second"}))
         second_id = json.loads(second.content or "{}")["todo"]["todo_id"]
 
         await manager.execute(_tool_call("complete_todo", {"todo_id": first_id}))
@@ -442,8 +442,16 @@ def test_todo_tools_cover_filters_and_validation_errors() -> None:
         assert all_payload["todos"][0]["tags"] == ["work", "ship"]
 
         invalid_calls = [
-            ("create_todo", {"title": "x", "due_at": 123}, "arguments.due_at has invalid type"),
-            ("create_todo", {"title": "x", "tags": "work"}, "arguments.tags has invalid type"),
+            (
+                "create_todo",
+                {"title": "x", "due_at": 123},
+                "arguments.due_at has invalid type",
+            ),
+            (
+                "create_todo",
+                {"title": "x", "tags": "work"},
+                "arguments.tags has invalid type",
+            ),
             (
                 "create_todo",
                 {"title": "x", "tags": [123]},
@@ -488,10 +496,14 @@ def test_todo_executor_helpers_validate_after_argument_parse() -> None:
             with pytest.raises(ToolExecutionError, match=message):
                 await list_executor.execute(_tool_call("list_todos", arguments))
 
-        with pytest.raises(ToolExecutionError, match="Tool arguments must be valid JSON"):
+        with pytest.raises(
+            ToolExecutionError, match="Tool arguments must be valid JSON"
+        ):
             await create_executor.execute(_tool_call("create_todo", "{"))
 
-        with pytest.raises(ToolExecutionError, match="Tool arguments must be a JSON object"):
+        with pytest.raises(
+            ToolExecutionError, match="Tool arguments must be a JSON object"
+        ):
             await create_executor.execute(_tool_call("create_todo", "[]"))
 
     asyncio.run(run())

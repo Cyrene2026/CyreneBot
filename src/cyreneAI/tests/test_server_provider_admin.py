@@ -211,7 +211,9 @@ def test_provider_admin_status_omits_catalog_info_when_registry_missing_entry() 
     asyncio.run(run())
 
 
-def test_provider_admin_upsert_validates_path_and_removes_disabled_running_provider() -> None:
+def test_provider_admin_upsert_validates_path_and_removes_disabled_running_provider() -> (
+    None
+):
     async def run() -> None:
         provider_manager = _provider_manager()
         await provider_manager.add(_config("provider-1"))
@@ -276,7 +278,9 @@ def test_provider_admin_upsert_reloads_existing_enabled_provider() -> None:
     asyncio.run(run())
 
 
-def test_provider_admin_stop_persists_disabled_config_and_reports_missing_provider() -> None:
+def test_provider_admin_stop_persists_disabled_config_and_reports_missing_provider() -> (
+    None
+):
     async def run() -> None:
         provider_manager = _provider_manager()
         store = _MemoryProviderConfigStore(_config("saved"))

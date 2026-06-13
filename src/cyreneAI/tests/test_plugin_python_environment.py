@@ -182,7 +182,9 @@ def test_plugin_python_environment_site_paths_require_python(tmp_path) -> None:
         python_env._site_paths(tmp_path / ".venv")
 
 
-def test_plugin_python_environment_site_paths_validate_output(tmp_path, monkeypatch) -> None:
+def test_plugin_python_environment_site_paths_validate_output(
+    tmp_path, monkeypatch
+) -> None:
     env_path = tmp_path / ".venv"
     python_path = python_env._environment_python(env_path)
     python_path.parent.mkdir(parents=True)

@@ -32,7 +32,10 @@ from cyreneAI.server.errors import http_status_for_error, raise_http_error
         (RateLimitError("slow down"), status.HTTP_429_TOO_MANY_REQUESTS),
         (RequestTimeoutError("timed out"), status.HTTP_504_GATEWAY_TIMEOUT),
         (AuthorizationError("forbidden"), status.HTTP_401_UNAUTHORIZED),
-        (StateError("Provider registry is not configured"), status.HTTP_503_SERVICE_UNAVAILABLE),
+        (
+            StateError("Provider registry is not configured"),
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        ),
         (StateError("already stopped"), status.HTTP_409_CONFLICT),
         (ValidationError("invalid"), 422),
         (UnsupportedError("unsupported"), 422),

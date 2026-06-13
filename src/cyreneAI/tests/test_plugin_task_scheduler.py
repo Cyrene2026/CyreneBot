@@ -113,7 +113,9 @@ def test_plugin_task_scheduler_rejects_invalid_task_definitions() -> None:
     executor = _RecordingTaskExecutor(asyncio.Event())
 
     with pytest.raises(PluginConfigurationError, match="name"):
-        scheduler.register_task("thirdparty.tasks", PluginTaskDefinition(name=" / "), executor)
+        scheduler.register_task(
+            "thirdparty.tasks", PluginTaskDefinition(name=" / "), executor
+        )
 
     with pytest.raises(PluginConfigurationError, match="interval_seconds"):
         scheduler.register_task(

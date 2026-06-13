@@ -215,7 +215,9 @@ def test_map_send_message_action_falls_back_to_recipient_and_session_chat_id() -
     assert session_payload["chat_id"] == "12345"
 
 
-def test_map_send_message_action_rejects_unsupported_action_and_missing_chat_id() -> None:
+def test_map_send_message_action_rejects_unsupported_action_and_missing_chat_id() -> (
+    None
+):
     with pytest.raises(BotActionError, match="does not support"):
         map_bot_action_to_send_message_payload(
             BotAction.model_construct(

@@ -11,8 +11,8 @@ from cyreneAI.application.runtime import CyreneAIRuntime
 from cyreneAI.bootstrap import build_cyrene_ai_runtime
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.bot.session_manager import BotSessionManager
-from cyreneAI.core.schema.bot import BotChannelDefinition
 from cyreneAI.core.errors.base import StateError
+from cyreneAI.core.schema.bot import BotChannelDefinition
 from cyreneAI.core.schema.skill import SkillSelectionRequest
 from cyreneAI.core.schema.tool import (
     ToolCall,

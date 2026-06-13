@@ -25,8 +25,16 @@ def _status_error(status_code: int) -> httpx.HTTPStatusError:
 @pytest.mark.parametrize(
     "exc, expected_type, expected_message",
     [
-        (QQBotAPIError("unauthorized", error_code=401), BotConfigurationError, "unauthorized"),
-        (QQBotAPIError("forbidden", error_code="403"), BotConfigurationError, "forbidden"),
+        (
+            QQBotAPIError("unauthorized", error_code=401),
+            BotConfigurationError,
+            "unauthorized",
+        ),
+        (
+            QQBotAPIError("forbidden", error_code="403"),
+            BotConfigurationError,
+            "forbidden",
+        ),
         (QQBotAPIError("bad request", error_code=400), BotActionError, "bad request"),
         (httpx.TimeoutException("slow"), BotActionError, "QQ request timed out"),
         (
@@ -61,7 +69,11 @@ def test_raise_qq_error_raises_translated_error() -> None:
 @pytest.mark.parametrize(
     "exc, expected_type, expected_message",
     [
-        (TelegramBotAPIError("bad request", error_code=400), BotActionError, "bad request"),
+        (
+            TelegramBotAPIError("bad request", error_code=400),
+            BotActionError,
+            "bad request",
+        ),
         (httpx.TimeoutException("slow"), BotActionError, "Telegram request timed out"),
         (
             _status_error(403),

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from cyreneAI.application.runtime import CyreneAIRuntime
-from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.bot.registry import BotChannelRegistry
 from cyreneAI.core.context.builder import ContextWindowBuilder
+from cyreneAI.core.errors.base import CyreneAIError
 from cyreneAI.core.provider.factory import ProviderFactory
 from cyreneAI.core.provider.manager import ProviderManager
 from cyreneAI.core.schema.bot import (
